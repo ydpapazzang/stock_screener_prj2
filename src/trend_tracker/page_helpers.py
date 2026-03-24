@@ -323,6 +323,9 @@ def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -
                 "최근 돌파월",
                 "백테스팅 결과",
                 "백테스트 수익률",
+                "MDD",
+                "CAGR",
+                "평균보유개월",
                 "매매 횟수",
                 "승률",
                 "거래량 증감률",
@@ -417,6 +420,14 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
     info3.metric("10개월선", f"{format_number(selected_row['10개월선'])}원")
     info4.metric("백테스트 수익률", format_percent(selected_row["백테스트 수익률"]))
 
+    backtest_col1, backtest_col2, backtest_col3 = st.columns(3)
+    backtest_col1.metric("MDD", format_percent(selected_row["MDD"]))
+    backtest_col2.metric("CAGR", format_percent(selected_row["CAGR"]))
+    backtest_col3.metric(
+        "평균 보유개월",
+        "미계산" if pd.isna(selected_row["평균보유개월"]) else f"{selected_row['평균보유개월']:.1f}개월",
+    )
+
     st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
     st.plotly_chart(create_monthly_chart(selected_monthly, selected_name), use_container_width=True)
 
@@ -439,6 +450,15 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
     history_df["거래량 증감률"] = history_df["거래량 증감률"].map(format_percent)
     history_df["월간 수익률"] = history_df["월간 수익률"].map(format_percent)
     st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+    trade_logs = selected_row["매매로그"] if "매매로그" in selected_row.index else []
+    if isinstance(trade_logs, list) and trade_logs:
+        trade_log_df = pd.DataFrame(trade_logs)
+        trade_log_df["진입가"] = trade_log_df["진입가"].map(format_number)
+        trade_log_df["청산가"] = trade_log_df["청산가"].map(format_number)
+        trade_log_df["수익률"] = trade_log_df["수익률"].map(format_percent)
+        with st.expander("매매별 로그", expanded=False):
+            st.dataframe(trade_log_df, use_container_width=True, hide_index=True)
 
 
 def render_settings_page() -> None:
@@ -464,6 +484,9 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["한달간 거래량"] = display_df["한달간 거래량"].map(format_number)
     display_df["거래량 증감률"] = display_df["거래량 증감률"].map(format_percent)
     display_df["백테스트 수익률"] = display_df["백테스트 수익률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
+    display_df["MDD"] = display_df["MDD"].map(lambda value: "미계산" if pd.isna(value) else format_percent(-abs(value)))
+    display_df["CAGR"] = display_df["CAGR"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
+    display_df["평균보유개월"] = display_df["평균보유개월"].map(lambda value: "미계산" if pd.isna(value) else f"{value:.1f}")
     display_df["승률"] = display_df["승률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
     display_df["백테스팅 결과"] = display_df["백테스팅 결과"].fillna("미계산")
     display_df["돌파경과개월"] = display_df["돌파경과개월"].map(lambda value: "-" if pd.isna(value) else int(value))

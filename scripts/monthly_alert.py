@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import holidays
 import pandas as pd
 
 from src.trend_tracker.analysis import analyze_market, get_last_data_error, get_latest_business_day
@@ -14,10 +15,22 @@ from src.trend_tracker.notifications import build_telegram_message, send_telegra
 SEOUL_TZ = ZoneInfo("Asia/Seoul")
 
 
-def is_last_calendar_day_in_seoul(now: datetime | None = None) -> bool:
+def get_last_business_day_of_month(target_date: date) -> date:
+    kr_holidays = holidays.country_holidays("KR", years=[target_date.year])
+    if target_date.month == 12:
+        month_end = date(target_date.year, 12, 31)
+    else:
+        month_end = date(target_date.year, target_date.month + 1, 1) - timedelta(days=1)
+
+    current = month_end
+    while current.weekday() >= 5 or current in kr_holidays:
+        current -= timedelta(days=1)
+    return current
+
+
+def is_last_business_day_in_seoul(now: datetime | None = None) -> bool:
     current = now.astimezone(SEOUL_TZ) if now else datetime.now(SEOUL_TZ)
-    tomorrow = current + timedelta(days=1)
-    return current.month != tomorrow.month
+    return current.date() == get_last_business_day_of_month(current.date())
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,8 +52,14 @@ def build_market_section(base_date: str, market: str, top_n: int) -> tuple[str, 
 def main() -> int:
     args = parse_args()
 
-    if not args.force and not is_last_calendar_day_in_seoul():
-        print("월말 마지막 날이 아니므로 배치 전송을 건너뜁니다. --force 로 강제 실행할 수 있습니다.")
+    if not args.force and not is_last_business_day_in_seoul():
+        current = datetime.now(SEOUL_TZ).date()
+        last_business_day = get_last_business_day_of_month(current)
+        print(
+            f"오늘은 월말 마지막 영업일이 아닙니다. "
+            f"(오늘: {current.isoformat()}, 마지막 영업일: {last_business_day.isoformat()}) "
+            "--force 로 강제 실행할 수 있습니다."
+        )
         return 0
 
     base_date = args.date or get_latest_business_day()

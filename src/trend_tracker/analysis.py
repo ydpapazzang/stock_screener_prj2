@@ -345,6 +345,9 @@ def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[Analy
         months_since_breakout=months_since_breakout,
         backtest_summary="미계산",
         backtest_return_pct=None,
+        backtest_mdd_pct=None,
+        backtest_cagr_pct=None,
+        average_hold_months=None,
         trade_count=0,
         win_rate_pct=None,
         market_cap=int(item.시가총액),
@@ -531,12 +534,16 @@ def enrich_results_with_backtests(
             continue
 
         monthly_frames[ticker] = monthly_df
-        backtest_summary, backtest_return_pct, trade_count, win_rate_pct = run_backtest(monthly_df)
+        backtest = run_backtest(monthly_df)
         ticker_mask = updated_df["종목코드"] == ticker
-        updated_df.loc[ticker_mask, "백테스팅 결과"] = backtest_summary
-        updated_df.loc[ticker_mask, "백테스트 수익률"] = backtest_return_pct
-        updated_df.loc[ticker_mask, "매매 횟수"] = trade_count
-        updated_df.loc[ticker_mask, "승률"] = win_rate_pct
+        updated_df.loc[ticker_mask, "백테스팅 결과"] = backtest.summary
+        updated_df.loc[ticker_mask, "백테스트 수익률"] = backtest.cumulative_return_pct
+        updated_df.loc[ticker_mask, "MDD"] = backtest.mdd_pct
+        updated_df.loc[ticker_mask, "CAGR"] = backtest.cagr_pct
+        updated_df.loc[ticker_mask, "평균보유개월"] = backtest.average_hold_months
+        updated_df.loc[ticker_mask, "매매 횟수"] = backtest.trade_count
+        updated_df.loc[ticker_mask, "승률"] = backtest.win_rate_pct
+        updated_df.loc[ticker_mask, "매매로그"] = [backtest.trade_log]
         updated_df.loc[ticker_mask, "가격데이터소스"] = source_used
 
     breakout_sort = pd.CategoricalDtype(["예", "아니오"], ordered=True)
@@ -594,10 +601,14 @@ def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFram
                 "거래량 증감률": item.volume_change_pct,
                 "백테스팅 결과": item.backtest_summary,
                 "백테스트 수익률": item.backtest_return_pct,
+                "MDD": item.backtest_mdd_pct,
+                "CAGR": item.backtest_cagr_pct,
+                "평균보유개월": item.average_hold_months,
                 "매매 횟수": item.trade_count,
                 "승률": item.win_rate_pct,
                 "시가총액": item.market_cap,
                 "가격데이터소스": "",
+                "매매로그": [],
             }
             for item in results
         ]
