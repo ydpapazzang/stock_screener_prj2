@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.trend_tracker.analysis import analyze_market, get_last_data_error, get_latest_business_day
-from src.trend_tracker.config import ALERT_MARKETS, DEFAULT_TOP_N
+from src.trend_tracker.config import ALERT_MARKETS, DEFAULT_TOP_N, is_telegram_configured
 from src.trend_tracker.formatting import format_number
 from src.trend_tracker.notifications import build_app_link_message, send_telegram_message
 
@@ -63,7 +63,7 @@ def build_summary_message(base_date: str, section_results: list[dict[str, object
 
     lines.append("")
     lines.append(f"총 돌파 종목 수: {total_breakouts}건")
-    lines.append("아래에 시장별 상세 메시지가 이어집니다.")
+    lines.append("돌파가 있거나 오류가 있는 시장만 아래에 상세 메시지를 보냅니다.")
     return "\n".join(lines)
 
 
@@ -167,7 +167,12 @@ def main() -> int:
     ]
 
     messages = [build_summary_message(base_date, section_results)]
-    messages.extend(result["message"] for result in section_results)
+    detail_messages = [
+        result["message"]
+        for result in section_results
+        if result["breakout_count"] > 0 or not result["ok"]
+    ]
+    messages.extend(detail_messages)
     messages.append(build_app_link_message())
 
     for message in messages:
@@ -176,6 +181,10 @@ def main() -> int:
 
     if args.skip_send:
         return 0
+
+    if not is_telegram_configured():
+        print("텔레그램 시크릿이 설정되어 있지 않습니다. GitHub Actions Secrets 또는 Streamlit Secrets를 확인해주세요.")
+        return 1
 
     return 0 if send_messages(messages) else 1
 

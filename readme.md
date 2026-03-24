@@ -82,7 +82,10 @@ src/trend_tracker/
 ```toml
 TELEGRAM_BOT_TOKEN = "your-telegram-bot-token"
 TELEGRAM_CHAT_ID = "your-chat-id"
+APP_PUBLIC_URL = "https://your-app.streamlit.app"
 ```
+
+`APP_PUBLIC_URL`은 선택값이지만, 넣어두면 텔레그램 메시지 마지막에 스크리너 링크가 함께 전송됩니다.
 
 ### 3. 배포 후 확인
 
@@ -116,6 +119,7 @@ python scripts/monthly_alert.py --force
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
+- `APP_PUBLIC_URL` 선택
 
 ## 데이터 소스 정책
 
@@ -153,4 +157,3 @@ python scripts/monthly_alert.py --force
 4. Screening 조회 테스트
 5. Backtest 실행 테스트
 6. GitHub Actions `workflow_dispatch`로 월말 배치 테스트
-

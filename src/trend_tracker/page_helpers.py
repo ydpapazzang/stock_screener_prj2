@@ -207,6 +207,55 @@ def get_session_results() -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame],
     )
 
 
+def _build_source_badges_html() -> str:
+    diagnostics = st.session_state.get(SESSION_DATA_DIAGNOSTICS_KEY, {})
+    if not diagnostics:
+        return ""
+
+    pool_source = diagnostics.get("pool_source") or "unknown"
+    pool_fallbacks = diagnostics.get("pool_fallbacks") or []
+    ohlcv_sources = diagnostics.get("ohlcv_sources") or {}
+
+    badges = []
+    badges.append(("종목풀", str(pool_source), "#0f766e"))
+    for source_name, count in ohlcv_sources.items():
+        color = "#1d4ed8" if "FinanceDataReader" in source_name else "#7c3aed" if "pykrx" in source_name else "#475569"
+        badges.append(("가격", f"{source_name} {count}건", color))
+    if pool_fallbacks:
+        badges.append(("fallback", "적용됨", "#b45309"))
+    else:
+        badges.append(("fallback", "없음", "#166534"))
+
+    parts = []
+    for label, value, color in badges:
+        parts.append(
+            f"""
+            <span style="
+                display:inline-flex;
+                align-items:center;
+                gap:6px;
+                margin:4px 8px 4px 0;
+                padding:6px 10px;
+                border-radius:999px;
+                background:{color};
+                color:white;
+                font-size:12px;
+                font-weight:600;">
+                <span style="opacity:0.78;">{label}</span>
+                <span>{value}</span>
+            </span>
+            """
+        )
+    return "".join(parts)
+
+
+def render_data_source_badges() -> None:
+    badges_html = _build_source_badges_html()
+    if not badges_html:
+        return
+    st.markdown(badges_html, unsafe_allow_html=True)
+
+
 def render_empty_state(results_df: pd.DataFrame | None) -> bool:
     if results_df is None:
         st.info("왼쪽 사이드바에서 시장과 기준일을 고른 뒤 `조회` 버튼을 눌러주세요.")
@@ -287,6 +336,7 @@ def render_filter_controls(
 def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
     st.subheader("스크리닝 결과")
     st.caption(f"현재 표시 종목 수 {len(filtered_df)} / 전체 조회 종목 수 {len(results_df)}")
+    render_data_source_badges()
 
     display_df = _format_common_display_df(filtered_df)
     if display_df.empty:
@@ -492,6 +542,7 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
 def render_settings_page() -> None:
     st.subheader("설정 정보")
     st.write("현재 앱 구성과 운영 기준을 한눈에 확인할 수 있습니다.")
+    render_data_source_badges()
 
     config_df = pd.DataFrame(
         [
