@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from pykrx import stock
 
-from .config import BACKTEST_BAR_LIMIT, DEFAULT_LOOKBACK_DAYS, MA_WINDOW, MAX_ANALYSIS_WORKERS
+from .config import BACKTEST_BAR_LIMIT, BACKTEST_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS, MA_WINDOW, MAX_ANALYSIS_WORKERS
 from .formatting import format_percent, to_krx_date
 
 LAST_DATA_ERROR: str | None = None
@@ -313,6 +313,7 @@ def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> t
 def enrich_results_with_backtests(
     results_df: pd.DataFrame,
     monthly_frames: dict[str, pd.DataFrame],
+    base_date: str,
     tickers: list[str] | None = None,
 ) -> pd.DataFrame:
     if results_df.empty:
@@ -320,12 +321,22 @@ def enrich_results_with_backtests(
 
     updated_df = results_df.copy()
     target_tickers = tickers or updated_df["종목코드"].tolist()
+    backtest_start_date = to_krx_date(datetime.strptime(base_date, "%Y%m%d").date() - timedelta(days=BACKTEST_LOOKBACK_DAYS))
 
     for ticker in target_tickers:
-        if ticker not in monthly_frames:
+        daily_df = _get_daily_ohlcv(
+            base_date=base_date,
+            start_date=backtest_start_date,
+            ticker=ticker,
+        )
+        if daily_df.empty:
             continue
 
-        monthly_df = monthly_frames[ticker]
+        monthly_df = build_monthly_frame(daily_df)
+        if monthly_df.empty:
+            continue
+
+        monthly_frames[ticker] = monthly_df
         backtest_summary, backtest_return_pct, trade_count, win_rate_pct = run_backtest(monthly_df)
         ticker_mask = updated_df["종목코드"] == ticker
         updated_df.loc[ticker_mask, "백테스팅 결과"] = backtest_summary

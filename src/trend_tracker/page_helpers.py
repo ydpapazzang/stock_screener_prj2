@@ -280,12 +280,18 @@ def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -
     )
 
 
-def run_manual_backtest_for_filtered(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
+def run_manual_backtest_for_filtered(
+    filtered_df: pd.DataFrame,
+    monthly_frames: dict[str, pd.DataFrame],
+    screen_base_date: str,
+) -> pd.DataFrame | None:
     if filtered_df.empty:
         st.warning("백테스트할 대상이 없습니다.")
         return None
 
-    if not st.button("백테스팅 실행", type="primary", use_container_width=True):
+    st.subheader("수동 백테스트")
+    st.caption("조회는 빠르게 수행하고, 백테스트는 버튼을 눌렀을 때 현재 필터 대상만 순차 계산합니다.")
+    if not st.button("현재 필터 대상 백테스팅 실행", type="primary", use_container_width=True):
         return None
 
     target_tickers = filtered_df["종목코드"].tolist()
@@ -301,7 +307,12 @@ def run_manual_backtest_for_filtered(filtered_df: pd.DataFrame, monthly_frames: 
     total = len(target_tickers)
     for index, ticker in enumerate(target_tickers, start=1):
         progress_text.info(f"백테스팅 계산 중... {index}/{total} ({ticker})")
-        updated_df = enrich_results_with_backtests(updated_df, monthly_frames, [ticker])
+        updated_df = enrich_results_with_backtests(
+            updated_df,
+            monthly_frames,
+            screen_base_date,
+            [ticker],
+        )
         progress_bar.progress(index / total)
 
     progress_bar.empty()
@@ -346,6 +357,7 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
     info3.metric("10개월선", f"{format_number(selected_row['10개월선'])}원")
     info4.metric("백테스트 수익률", format_percent(selected_row["백테스트 수익률"]))
 
+    st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
     st.plotly_chart(create_monthly_chart(selected_monthly, selected_name), use_container_width=True)
 
     history_df = selected_monthly.tail(24).copy().reset_index()

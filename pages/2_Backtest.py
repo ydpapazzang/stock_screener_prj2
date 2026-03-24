@@ -19,12 +19,12 @@ st.title("백테스트")
 st.caption("최근 200봉 기준 MA10 전략 성과를 종목별로 비교합니다.")
 
 render_query_sidebar()
-results_df, monthly_frames, _, _ = get_session_results()
+results_df, monthly_frames, _, screen_base_date = get_session_results()
 
 if not render_empty_state(results_df):
     render_summary_metrics(results_df)
     filtered_df = render_filter_controls(results_df, default_sort_by="돌파경과개월")
-    updated_results_df = run_manual_backtest_for_filtered(filtered_df, monthly_frames)
+    updated_results_df = run_manual_backtest_for_filtered(filtered_df, monthly_frames, screen_base_date)
     if updated_results_df is not None:
         results_df = updated_results_df
         filtered_df = render_filter_controls(results_df, default_sort_by="백테스트 수익률")

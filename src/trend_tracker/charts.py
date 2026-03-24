@@ -27,9 +27,9 @@ def create_monthly_chart(monthly_df: pd.DataFrame, name: str) -> go.Figure:
     )
     fig.update_layout(
         title=f"{name} 월봉 종가 vs 10개월선",
-        height=420,
-        margin=dict(l=20, r=20, t=50, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        height=460,
+        margin=dict(l=20, r=20, t=90, b=70),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, x=0),
     )
     fig.update_yaxes(title="가격")
     return fig
