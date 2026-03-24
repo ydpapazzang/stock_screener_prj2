@@ -1,6 +1,6 @@
 streamlit
 pandas
 plotly
-pykrx
+pykrx>=1.2.4
 requests
 setuptools
