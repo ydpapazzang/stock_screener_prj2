@@ -5,7 +5,14 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from .analysis import analyze_market, apply_result_filters, enrich_results_with_backtests, get_last_data_diagnostics, get_last_data_error, get_latest_business_day
+from .analysis import (
+    analyze_market,
+    apply_result_filters,
+    enrich_results_with_backtests,
+    get_last_data_diagnostics,
+    get_last_data_error,
+    get_latest_business_day,
+)
 from .charts import create_monthly_chart
 from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_chat_id
 from .formatting import format_number, format_percent, to_krx_date
@@ -20,7 +27,7 @@ SESSION_BASE_DATE_INPUT_KEY = "base_date_input"
 SESSION_DATA_DIAGNOSTICS_KEY = "last_data_diagnostics"
 
 
-def _set_today_base_date(latest_business_day):
+def _set_today_base_date(latest_business_day) -> None:
     st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
 
 
@@ -153,7 +160,7 @@ def render_query_sidebar() -> None:
         date_col, today_col = st.columns([3, 1])
         with date_col:
             base_date = st.date_input(
-                "기준 일자",
+                "기준일자",
                 max_value=latest_business_day,
                 key=SESSION_BASE_DATE_INPUT_KEY,
             )
@@ -166,6 +173,7 @@ def render_query_sidebar() -> None:
                 on_click=_set_today_base_date,
                 args=(latest_business_day,),
             )
+
         market_label = st.selectbox("시장", list(MARKET_OPTIONS.keys()), index=0)
         top_n = st.slider("대상 종목 수", min_value=30, max_value=300, value=DEFAULT_TOP_N, step=10)
         query_button = st.button("조회", type="primary", use_container_width=True)
@@ -201,10 +209,10 @@ def get_session_results() -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame],
 
 def render_empty_state(results_df: pd.DataFrame | None) -> bool:
     if results_df is None:
-        st.info("왼쪽 사이드바에서 조건을 고른 뒤 `조회` 버튼을 눌러주세요.")
+        st.info("왼쪽 사이드바에서 시장과 기준일을 고른 뒤 `조회` 버튼을 눌러주세요.")
         return True
     if results_df.empty:
-        st.warning("조회 결과가 없습니다. 기준 일자나 시장을 바꿔 다시 시도해주세요. 네트워크 문제 또는 pykrx/KRX 응답 형식 오류일 수도 있습니다.")
+        st.warning("조회 결과가 없습니다. 기준일자나 시장을 바꿔 다시 시도해주세요.")
         last_error = st.session_state.get("last_data_error")
         if last_error:
             st.error(f"데이터 진단: {last_error}")
@@ -231,19 +239,29 @@ def render_filter_controls(
     default_sort_by: str = "돌파경과개월",
     key_prefix: str = "default",
 ) -> pd.DataFrame:
-    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+    filter_col1, filter_col2 = st.columns([1, 1])
     with filter_col1:
         only_breakouts = st.checkbox("돌파 종목만 보기", value=True, key=f"{key_prefix}_only_breakouts")
     with filter_col2:
         name_query = st.text_input("종목명/코드 검색", value="", key=f"{key_prefix}_name_query")
-    with filter_col3:
-        sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증감률", "현재가", "한달간 거래량", "시가총액", "종목명"]
-        default_index = sort_options.index(default_sort_by) if default_sort_by in sort_options else 0
-        sort_by = st.selectbox("정렬 기준", sort_options, index=default_index, key=f"{key_prefix}_sort_by")
-    with filter_col4:
-        sort_direction = st.selectbox("정렬 방향", ["오름차순", "내림차순"], index=0, key=f"{key_prefix}_sort_direction")
 
-    advanced_col1, advanced_col2, advanced_col3 = st.columns(3)
+    sort_col1, sort_col2, sort_col3 = st.columns([1, 1, 1])
+    sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증가율", "현재가", "한달간 거래량", "시가총액", "종목명"]
+    default_index = sort_options.index(default_sort_by) if default_sort_by in sort_options else 0
+    with sort_col1:
+        sort_by = st.selectbox("정렬 기준", sort_options, index=default_index, key=f"{key_prefix}_sort_by")
+    with sort_col2:
+        sort_direction = st.selectbox("정렬 방향", ["오름차순", "내림차순"], index=0, key=f"{key_prefix}_sort_direction")
+    with sort_col3:
+        breakout_within_months = st.selectbox(
+            "최근 돌파 기준",
+            [0, 1, 3, 6, 12],
+            index=2,
+            format_func=lambda value: "전체" if value == 0 else f"{value}개월 이내",
+            key=f"{key_prefix}_breakout_within_months",
+        )
+
+    advanced_col1, advanced_col2 = st.columns([1, 1])
     with advanced_col1:
         volume_up_only = st.checkbox("거래량 증가 종목만", value=False, key=f"{key_prefix}_volume_up_only")
     with advanced_col2:
@@ -252,14 +270,6 @@ def render_filter_controls(
             value=0.0,
             step=5.0,
             key=f"{key_prefix}_min_backtest_return",
-        )
-    with advanced_col3:
-        breakout_within_months = st.selectbox(
-            "최근 돌파 기준",
-            [0, 1, 3, 6, 12],
-            index=2,
-            format_func=lambda value: "전체" if value == 0 else f"{value}개월 이내",
-            key=f"{key_prefix}_breakout_within_months",
         )
 
     return apply_result_filters(
@@ -276,7 +286,7 @@ def render_filter_controls(
 
 def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
     st.subheader("스크리닝 결과")
-    st.caption(f"현재 표시 종목 수: {len(filtered_df)} / 전체 조회 종목 수: {len(results_df)}")
+    st.caption(f"현재 표시 종목 수 {len(filtered_df)} / 전체 조회 종목 수 {len(results_df)}")
 
     display_df = _format_common_display_df(filtered_df)
     if display_df.empty:
@@ -289,24 +299,31 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
                 "시장",
                 "종목명",
                 "종목코드",
+                "현재상태",
                 "현재가",
                 "월봉10개월선돌파여부",
                 "최근 돌파월",
                 "돌파경과개월",
                 "한달간 거래량",
-                "거래량 증감률",
-                "백테스팅 결과",
-                "백테스트 수익률",
+                "거래량 증가율",
             ]
         ],
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "종목명": st.column_config.TextColumn(width="medium"),
+            "종목코드": st.column_config.TextColumn(width="small"),
+            "현재상태": st.column_config.TextColumn(width="small"),
+            "월봉10개월선돌파여부": st.column_config.TextColumn(label="돌파"),
+            "최근 돌파월": st.column_config.TextColumn(width="small"),
+            "돌파경과개월": st.column_config.NumberColumn(format="%d"),
+        },
     )
 
 
 def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
     st.subheader("백테스트 결과")
-    st.caption(f"현재 표시 종목 수: {len(filtered_df)} / 전체 조회 종목 수: {len(results_df)}")
+    st.caption(f"현재 표시 종목 수 {len(filtered_df)} / 전체 조회 종목 수 {len(results_df)}")
 
     display_df = _format_common_display_df(filtered_df)
     if display_df.empty:
@@ -319,8 +336,6 @@ def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -
                 "시장",
                 "종목명",
                 "종목코드",
-                "월봉10개월선돌파여부",
-                "최근 돌파월",
                 "백테스팅 결과",
                 "백테스트 수익률",
                 "MDD",
@@ -328,11 +343,15 @@ def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -
                 "평균보유개월",
                 "매매 횟수",
                 "승률",
-                "거래량 증감률",
             ]
         ],
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "종목명": st.column_config.TextColumn(width="medium"),
+            "종목코드": st.column_config.TextColumn(width="small"),
+            "백테스팅 결과": st.column_config.TextColumn(width="large"),
+        },
     )
 
 
@@ -342,11 +361,11 @@ def run_manual_backtest_for_filtered(
     screen_base_date: str,
 ) -> pd.DataFrame | None:
     if filtered_df.empty:
-        st.warning("백테스트할 대상이 없습니다.")
+        st.warning("백테스트 대상이 없습니다.")
         return None
 
     st.subheader("수동 백테스트")
-    st.caption("조회는 빠르게 수행하고, 백테스트는 버튼을 눌렀을 때 현재 필터 대상만 순차 계산합니다.")
+    st.caption("이 페이지에서는 현재 필터된 종목만 순차적으로 백테스트합니다.")
     if not st.button("현재 필터 대상 백테스팅 실행", type="primary", use_container_width=True):
         return None
 
@@ -368,7 +387,7 @@ def run_manual_backtest_for_filtered(
         ticker_name = ticker_name_series.iloc[0] if not ticker_name_series.empty else ticker
         percent_complete = int(index / total * 100)
         progress_title.markdown(f"**백테스트 진행률: {percent_complete}%**")
-        progress_caption.caption(f"현재 계산 중: {ticker_name} ({ticker})  |  {index}/{total}")
+        progress_caption.caption(f"현재 계산 중: {ticker_name} ({ticker}) | {index}/{total}")
         updated_df = enrich_results_with_backtests(
             updated_df,
             monthly_frames,
@@ -387,16 +406,20 @@ def run_manual_backtest_for_filtered(
 def render_telegram_panel(filtered_df: pd.DataFrame, results_df: pd.DataFrame, screen_base_date: str, screen_market: str) -> None:
     telegram_source_df = filtered_df if not filtered_df.empty else results_df[results_df["월봉10개월선돌파여부"] == "예"]
     telegram_message = build_telegram_message(telegram_source_df, screen_base_date, screen_market)
+    is_configured = bool(get_telegram_chat_id())
 
-    action_col1, action_col2 = st.columns([3, 1])
-    with action_col1:
+    tab_preview, tab_send = st.tabs(["미리보기", "수동 전송"])
+    with tab_preview:
         st.subheader("텔레그램 알림 미리보기")
         st.code(telegram_message, language="text")
-    with action_col2:
-        st.subheader("수동 전송")
-        chat_id = get_telegram_chat_id() or "(미설정)"
-        st.caption(f"Chat ID: {chat_id}")
-        if st.button("텔레그램 알림", use_container_width=True):
+
+    with tab_send:
+        if is_configured:
+            st.caption("텔레그램 수동 전송이 설정되어 있습니다.")
+        else:
+            st.caption("텔레그램 시크릿이 없어서 수동 전송은 동작하지 않습니다.")
+
+        if st.button("텔레그램 알림 전송", use_container_width=True):
             with st.spinner("텔레그램으로 전송하는 중입니다..."):
                 success, message = send_telegram_message(telegram_message)
             if success:
@@ -428,52 +451,63 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
         "미계산" if pd.isna(selected_row["평균보유개월"]) else f"{selected_row['평균보유개월']:.1f}개월",
     )
 
-    st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
-    st.plotly_chart(create_monthly_chart(selected_monthly, selected_name), use_container_width=True)
+    tab_chart, tab_history, tab_trades = st.tabs(["차트", "월별 데이터", "매매 로그"])
 
-    history_df = selected_monthly.tail(24).copy().reset_index()
-    date_column = history_df.columns[0]
-    history_df = history_df.rename(columns={date_column: "날짜"})
-    history_df["날짜"] = pd.to_datetime(history_df["날짜"]).dt.strftime("%Y-%m")
-    history_df = history_df.rename(
-        columns={
-            "close": "월봉 종가",
-            "ma10": "10개월선",
-            "volume": "월 거래량",
-            "volume_change_pct": "거래량 증감률",
-            "monthly_return_pct": "월간 수익률",
-        }
-    )
-    history_df["월봉 종가"] = history_df["월봉 종가"].map(format_number)
-    history_df["10개월선"] = history_df["10개월선"].map(format_number)
-    history_df["월 거래량"] = history_df["월 거래량"].map(format_number)
-    history_df["거래량 증감률"] = history_df["거래량 증감률"].map(format_percent)
-    history_df["월간 수익률"] = history_df["월간 수익률"].map(format_percent)
-    st.dataframe(history_df, use_container_width=True, hide_index=True)
+    with tab_chart:
+        st.plotly_chart(create_monthly_chart(selected_monthly, selected_name), use_container_width=True)
 
-    trade_logs = selected_row["매매로그"] if "매매로그" in selected_row.index else []
-    if isinstance(trade_logs, list) and trade_logs:
-        trade_log_df = pd.DataFrame(trade_logs)
-        trade_log_df["진입가"] = trade_log_df["진입가"].map(format_number)
-        trade_log_df["청산가"] = trade_log_df["청산가"].map(format_number)
-        trade_log_df["수익률"] = trade_log_df["수익률"].map(format_percent)
-        with st.expander("매매별 로그", expanded=False):
+    with tab_history:
+        history_df = selected_monthly.tail(24).copy().reset_index()
+        date_column = history_df.columns[0]
+        history_df = history_df.rename(columns={date_column: "날짜"})
+        history_df["날짜"] = pd.to_datetime(history_df["날짜"]).dt.strftime("%Y-%m")
+        history_df = history_df.rename(
+            columns={
+                "close": "월봉 종가",
+                "ma10": "10개월선",
+                "volume": "월 거래량",
+                "volume_change_pct": "거래량 증가율",
+                "monthly_return_pct": "월간 수익률",
+            }
+        )
+        history_df["월봉 종가"] = history_df["월봉 종가"].map(format_number)
+        history_df["10개월선"] = history_df["10개월선"].map(format_number)
+        history_df["월 거래량"] = history_df["월 거래량"].map(format_number)
+        history_df["거래량 증가율"] = history_df["거래량 증가율"].map(format_percent)
+        history_df["월간 수익률"] = history_df["월간 수익률"].map(format_percent)
+        st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+    with tab_trades:
+        trade_logs = selected_row["매매로그"] if "매매로그" in selected_row.index else []
+        if isinstance(trade_logs, list) and trade_logs:
+            trade_log_df = pd.DataFrame(trade_logs)
+            trade_log_df["진입가"] = trade_log_df["진입가"].map(format_number)
+            trade_log_df["청산가"] = trade_log_df["청산가"].map(format_number)
+            trade_log_df["수익률"] = trade_log_df["수익률"].map(format_percent)
             st.dataframe(trade_log_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("아직 계산된 매매 로그가 없습니다. Backtest 페이지에서 백테스트를 실행해주세요.")
 
 
 def render_settings_page() -> None:
     st.subheader("설정 정보")
-    st.write("현재 앱에서 사용하는 핵심 설정입니다.")
+    st.write("현재 앱 구성과 운영 기준을 한눈에 확인할 수 있습니다.")
 
     config_df = pd.DataFrame(
         [
             {"항목": "대상 시장", "값": ", ".join(MARKET_OPTIONS.keys())},
             {"항목": "기본 조회 종목 수", "값": DEFAULT_TOP_N},
+            {"항목": "스크리닝 목적", "값": "빠른 돌파 후보 탐색"},
+            {"항목": "백테스트 목적", "값": "수동 실행 기반 성과 검증"},
             {"항목": "시총 풀 우선 데이터 소스", "값": "FinanceDataReader -> pykrx fallback"},
         ]
     )
     st.dataframe(config_df, use_container_width=True, hide_index=True)
-    st.caption("설정값 파일 위치: src/trend_tracker/config.py")
+
+    st.markdown("**운영 메모**")
+    st.info("텔레그램 토큰과 Chat ID는 화면에 노출하지 않고 Streamlit Secrets 또는 GitHub Secrets에서만 관리하는 것을 권장합니다.")
+    st.caption("설정 파일 위치: src/trend_tracker/config.py")
+
     render_data_source_diagnostics()
 
 
@@ -482,7 +516,7 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["현재가"] = display_df["현재가"].map(format_number)
     display_df["10개월선"] = display_df["10개월선"].map(format_number)
     display_df["한달간 거래량"] = display_df["한달간 거래량"].map(format_number)
-    display_df["거래량 증감률"] = display_df["거래량 증감률"].map(format_percent)
+    display_df["거래량 증가율"] = display_df["거래량 증가율"].map(format_percent)
     display_df["백테스트 수익률"] = display_df["백테스트 수익률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
     display_df["MDD"] = display_df["MDD"].map(lambda value: "미계산" if pd.isna(value) else format_percent(-abs(value)))
     display_df["CAGR"] = display_df["CAGR"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
@@ -504,19 +538,27 @@ def render_data_source_diagnostics() -> None:
         ohlcv_sources = diagnostics.get("ohlcv_sources") or {}
         errors = diagnostics.get("errors") or []
 
-        st.write(f"시총 풀 소스: `{pool_source}`")
+        status_col1, status_col2 = st.columns(2)
+        status_col1.metric("종목 풀 소스", pool_source)
+        status_col2.metric("OHLCV 사용 소스 수", len(ohlcv_sources))
+
         if pool_fallbacks:
-            st.write("시총 풀 fallback 경로:")
+            st.markdown("**적용된 fallback 경로**")
             for item in pool_fallbacks:
                 st.write(f"- {item}")
+        else:
+            st.success("현재 조회에서는 추가 fallback 없이 기본 경로로 처리되었습니다.")
 
         if ohlcv_sources:
             source_df = pd.DataFrame(
                 [{"소스": key, "건수": value} for key, value in ohlcv_sources.items()]
             )
+            st.markdown("**가격 데이터 사용 분포**")
             st.dataframe(source_df, use_container_width=True, hide_index=True)
 
         if errors:
-            st.write("최근 에러:")
+            st.markdown("**최근 데이터 오류**")
             for item in errors[:5]:
                 st.code(item, language="text")
+        else:
+            st.info("최근 조회에서 기록된 데이터 오류는 없습니다.")
