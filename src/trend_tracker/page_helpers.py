@@ -7,7 +7,7 @@ import streamlit as st
 
 from .analysis import analyze_market, apply_result_filters, enrich_results_with_backtests, get_last_data_error, get_latest_business_day
 from .charts import create_monthly_chart
-from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_bot_token, get_telegram_chat_id, is_telegram_configured
+from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_chat_id
 from .formatting import format_number, format_percent, to_krx_date
 from .notifications import build_telegram_message, send_telegram_message
 
@@ -16,6 +16,7 @@ SESSION_RESULTS_KEY = "results_df"
 SESSION_FRAMES_KEY = "monthly_frames"
 SESSION_MARKET_KEY = "screen_market"
 SESSION_DATE_KEY = "screen_base_date"
+SESSION_BASE_DATE_INPUT_KEY = "base_date_input"
 
 
 class PageLoadingOverlay:
@@ -141,7 +142,23 @@ def render_query_sidebar() -> None:
     with st.sidebar:
         st.header("조회 설정")
         latest_business_day = datetime.strptime(get_latest_business_day(), "%Y%m%d").date()
-        base_date = st.date_input("기준 일자", value=latest_business_day, max_value=latest_business_day)
+        if SESSION_BASE_DATE_INPUT_KEY not in st.session_state:
+            st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
+
+        date_col, today_col = st.columns([3, 1])
+        with date_col:
+            base_date = st.date_input(
+                "기준 일자",
+                value=st.session_state[SESSION_BASE_DATE_INPUT_KEY],
+                max_value=latest_business_day,
+                key=SESSION_BASE_DATE_INPUT_KEY,
+            )
+        with today_col:
+            st.write("")
+            st.write("")
+            if st.button("Today", use_container_width=True):
+                st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
+                st.rerun()
         market_label = st.selectbox("시장", list(MARKET_OPTIONS.keys()), index=0)
         top_n = st.slider("대상 종목 수", min_value=30, max_value=300, value=DEFAULT_TOP_N, step=10)
         query_button = st.button("조회", type="primary", use_container_width=True)
@@ -424,18 +441,10 @@ def render_settings_page() -> None:
             {"항목": "대상 시장", "값": ", ".join(MARKET_OPTIONS.keys())},
             {"항목": "기본 조회 종목 수", "값": DEFAULT_TOP_N},
             {"항목": "시총 풀 우선 데이터 소스", "값": "FinanceDataReader -> pykrx fallback"},
-            {"항목": "텔레그램 설정 여부", "값": "설정됨" if is_telegram_configured() else "미설정"},
-            {"항목": "텔레그램 Chat ID", "값": get_telegram_chat_id() or "(미설정)"},
-            {"항목": "텔레그램 Bot Token", "값": _mask_token(get_telegram_bot_token())},
         ]
     )
     st.dataframe(config_df, use_container_width=True, hide_index=True)
     st.caption("설정값 파일 위치: src/trend_tracker/config.py")
-    st.write("Streamlit Community Cloud에서는 App settings > Secrets에, GitHub Actions에서는 Repository secrets에 같은 키를 넣으면 됩니다.")
-    st.code(
-        'TELEGRAM_BOT_TOKEN="..."\nTELEGRAM_CHAT_ID="..."',
-        language="toml",
-    )
 
 
 def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
@@ -450,8 +459,3 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["돌파경과개월"] = display_df["돌파경과개월"].map(lambda value: "-" if pd.isna(value) else int(value))
     return display_df
 
-
-def _mask_token(token: str) -> str:
-    if len(token) < 10:
-        return "***"
-    return f"{token[:8]}...{token[-4:]}"
