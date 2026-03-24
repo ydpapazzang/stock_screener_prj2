@@ -149,7 +149,6 @@ def render_query_sidebar() -> None:
         with date_col:
             base_date = st.date_input(
                 "기준 일자",
-                value=st.session_state[SESSION_BASE_DATE_INPUT_KEY],
                 max_value=latest_business_day,
                 key=SESSION_BASE_DATE_INPUT_KEY,
             )
