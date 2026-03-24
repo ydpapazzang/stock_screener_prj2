@@ -343,6 +343,16 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
         st.warning("현재 필터 조건에 맞는 종목이 없습니다.")
         return
 
+    csv_df = filtered_df.copy()
+    csv_df["최근 돌파월"] = csv_df["최근 돌파월"].fillna("-")
+    st.download_button(
+        "스크리닝 결과 CSV 다운로드",
+        data=csv_df.to_csv(index=False, encoding="utf-8-sig"),
+        file_name="screening_results.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
     st.dataframe(
         display_df[
             [
@@ -379,6 +389,26 @@ def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -
     if display_df.empty:
         st.warning("현재 필터 조건에 맞는 종목이 없습니다.")
         return
+
+    action_col1, action_col2 = st.columns(2)
+    with action_col1:
+        st.download_button(
+            "백테스트 결과 CSV 다운로드",
+            data=filtered_df.copy().to_csv(index=False, encoding="utf-8-sig"),
+            file_name="backtest_results.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with action_col2:
+        trade_log_csv = _build_trade_log_csv(filtered_df)
+        if trade_log_csv is not None:
+            st.download_button(
+                "매매 로그 CSV 다운로드",
+                data=trade_log_csv,
+                file_name="backtest_trade_logs.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
     st.dataframe(
         display_df[
@@ -576,6 +606,35 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["백테스팅 결과"] = display_df["백테스팅 결과"].fillna("미계산")
     display_df["돌파경과개월"] = display_df["돌파경과개월"].map(lambda value: "-" if pd.isna(value) else int(value))
     return display_df
+
+
+def _build_trade_log_csv(filtered_df: pd.DataFrame) -> str | None:
+    rows: list[dict[str, object]] = []
+    if "매매로그" not in filtered_df.columns:
+        return None
+
+    for _, row in filtered_df.iterrows():
+        trade_logs = row.get("매매로그", [])
+        if not isinstance(trade_logs, list) or not trade_logs:
+            continue
+        for trade in trade_logs:
+            rows.append(
+                {
+                    "시장": row.get("시장"),
+                    "종목명": row.get("종목명"),
+                    "종목코드": row.get("종목코드"),
+                    "진입월": trade.get("진입월"),
+                    "청산월": trade.get("청산월"),
+                    "진입가": trade.get("진입가"),
+                    "청산가": trade.get("청산가"),
+                    "수익률": trade.get("수익률"),
+                    "보유개월": trade.get("보유개월"),
+                }
+            )
+
+    if not rows:
+        return None
+    return pd.DataFrame(rows).to_csv(index=False, encoding="utf-8-sig")
 
 
 def render_data_source_diagnostics() -> None:
