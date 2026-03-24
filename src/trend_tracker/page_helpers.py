@@ -7,7 +7,7 @@ import streamlit as st
 
 from .analysis import analyze_market, apply_result_filters, enrich_results_with_backtests, get_last_data_error, get_latest_business_day
 from .charts import create_monthly_chart
-from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_chat_id
+from .config import DEFAULT_TOP_N, MARKET_OPTIONS
 from .formatting import format_number, format_percent, to_krx_date
 from .notifications import build_telegram_message, send_telegram_message
 
@@ -458,4 +458,3 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["백테스팅 결과"] = display_df["백테스팅 결과"].fillna("미계산")
     display_df["돌파경과개월"] = display_df["돌파경과개월"].map(lambda value: "-" if pd.isna(value) else int(value))
     return display_df
-
