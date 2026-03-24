@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from .analysis import analyze_market, apply_result_filters, get_last_data_error, get_latest_business_day
+from .analysis import analyze_market, apply_result_filters, enrich_results_with_backtests, get_last_data_error, get_latest_business_day
 from .charts import create_monthly_chart
 from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_bot_token, get_telegram_chat_id, is_telegram_configured
 from .formatting import format_number, format_percent, to_krx_date
@@ -280,6 +280,36 @@ def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -
     )
 
 
+def run_manual_backtest_for_filtered(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
+    if filtered_df.empty:
+        st.warning("백테스트할 대상이 없습니다.")
+        return None
+
+    if not st.button("백테스팅 실행", type="primary", use_container_width=True):
+        return None
+
+    target_tickers = filtered_df["종목코드"].tolist()
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+
+    updated_df = st.session_state.get(SESSION_RESULTS_KEY)
+    if updated_df is None or updated_df.empty:
+        progress_bar.empty()
+        progress_text.empty()
+        return None
+
+    total = len(target_tickers)
+    for index, ticker in enumerate(target_tickers, start=1):
+        progress_text.info(f"백테스팅 계산 중... {index}/{total} ({ticker})")
+        updated_df = enrich_results_with_backtests(updated_df, monthly_frames, [ticker])
+        progress_bar.progress(index / total)
+
+    progress_bar.empty()
+    progress_text.success(f"백테스트 계산이 완료되었습니다. 대상 {total}종목")
+    st.session_state[SESSION_RESULTS_KEY] = updated_df
+    return updated_df
+
+
 def render_telegram_panel(filtered_df: pd.DataFrame, results_df: pd.DataFrame, screen_base_date: str, screen_market: str) -> None:
     telegram_source_df = filtered_df if not filtered_df.empty else results_df[results_df["월봉10개월선돌파여부"] == "예"]
     telegram_message = build_telegram_message(telegram_source_df, screen_base_date, screen_market)
@@ -368,8 +398,9 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["10개월선"] = display_df["10개월선"].map(format_number)
     display_df["한달간 거래량"] = display_df["한달간 거래량"].map(format_number)
     display_df["거래량 증감률"] = display_df["거래량 증감률"].map(format_percent)
-    display_df["백테스트 수익률"] = display_df["백테스트 수익률"].map(format_percent)
-    display_df["승률"] = display_df["승률"].map(format_percent)
+    display_df["백테스트 수익률"] = display_df["백테스트 수익률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
+    display_df["승률"] = display_df["승률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
+    display_df["백테스팅 결과"] = display_df["백테스팅 결과"].fillna("미계산")
     display_df["돌파경과개월"] = display_df["돌파경과개월"].map(lambda value: "-" if pd.isna(value) else int(value))
     return display_df
 

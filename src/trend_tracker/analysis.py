@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -7,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from pykrx import stock
 
-from .config import BACKTEST_BAR_LIMIT, DEFAULT_LOOKBACK_DAYS, MA_WINDOW
+from .config import BACKTEST_BAR_LIMIT, DEFAULT_LOOKBACK_DAYS, MA_WINDOW, MAX_ANALYSIS_WORKERS
 from .formatting import format_percent, to_krx_date
 
 LAST_DATA_ERROR: str | None = None
@@ -149,6 +150,7 @@ def _normalize_daily_ohlcv(daily_df: pd.DataFrame) -> pd.DataFrame:
     return df[["종가", "거래량"]].dropna()
 
 
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
 def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str) -> pd.DataFrame:
     global LAST_DATA_ERROR
     try:
@@ -178,6 +180,48 @@ def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str) -> pd.DataFra
         LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR 개별 종목 OHLCV 조회 실패({ticker}): {exc}" if LAST_DATA_ERROR else f"FDR 개별 종목 OHLCV 조회 실패({ticker}): {exc}"
 
     return pd.DataFrame(columns=["종가", "거래량"])
+
+
+def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[AnalysisResult | None, pd.DataFrame | None]:
+    daily_df = _get_daily_ohlcv(
+        base_date=base_date,
+        start_date=start_date,
+        ticker=item.티커,
+    )
+
+    if daily_df.empty:
+        return None, None
+
+    monthly_df = build_monthly_frame(daily_df)
+    if len(monthly_df) < 2:
+        return None, None
+
+    breakout, signal = evaluate_signal(monthly_df)
+    latest_breakout_date, months_since_breakout = find_latest_breakout(monthly_df)
+    current = monthly_df.iloc[-1]
+    previous = monthly_df.iloc[-2]
+
+    result = AnalysisResult(
+        ticker=item.티커,
+        name=item.종목명,
+        market=item.시장,
+        close=float(current["close"]),
+        ma10=float(current["ma10"]),
+        previous_close=float(previous["close"]),
+        previous_ma10=float(previous["ma10"]),
+        monthly_volume=float(current["volume"]),
+        volume_change_pct=float(current["volume_change_pct"]) if pd.notna(current["volume_change_pct"]) else None,
+        breakout=breakout,
+        signal=signal,
+        latest_breakout_date=latest_breakout_date,
+        months_since_breakout=months_since_breakout,
+        backtest_summary="미계산",
+        backtest_return_pct=None,
+        trade_count=0,
+        win_rate_pct=None,
+        market_cap=int(item.시가총액),
+    )
+    return result, monthly_df
 
 
 def build_monthly_frame(daily_df: pd.DataFrame) -> pd.DataFrame:
@@ -266,6 +310,38 @@ def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> t
     return summary, cumulative_return_pct, trades, win_rate_pct
 
 
+def enrich_results_with_backtests(
+    results_df: pd.DataFrame,
+    monthly_frames: dict[str, pd.DataFrame],
+    tickers: list[str] | None = None,
+) -> pd.DataFrame:
+    if results_df.empty:
+        return results_df
+
+    updated_df = results_df.copy()
+    target_tickers = tickers or updated_df["종목코드"].tolist()
+
+    for ticker in target_tickers:
+        if ticker not in monthly_frames:
+            continue
+
+        monthly_df = monthly_frames[ticker]
+        backtest_summary, backtest_return_pct, trade_count, win_rate_pct = run_backtest(monthly_df)
+        ticker_mask = updated_df["종목코드"] == ticker
+        updated_df.loc[ticker_mask, "백테스팅 결과"] = backtest_summary
+        updated_df.loc[ticker_mask, "백테스트 수익률"] = backtest_return_pct
+        updated_df.loc[ticker_mask, "매매 횟수"] = trade_count
+        updated_df.loc[ticker_mask, "승률"] = win_rate_pct
+
+    breakout_sort = pd.CategoricalDtype(["예", "아니오"], ordered=True)
+    signal_sort = pd.CategoricalDtype(["돌파", "상단 유지", "하단 위치", "이탈"], ordered=True)
+    if "월봉10개월선돌파여부" in updated_df.columns:
+        updated_df["월봉10개월선돌파여부"] = updated_df["월봉10개월선돌파여부"].astype(breakout_sort)
+    if "현재상태" in updated_df.columns:
+        updated_df["현재상태"] = updated_df["현재상태"].astype(signal_sort)
+    return updated_df
+
+
 @st.cache_data(ttl=60 * 30, show_spinner=False)
 def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     global LAST_DATA_ERROR
@@ -277,49 +353,21 @@ def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFram
     results: list[AnalysisResult] = []
     monthly_frames: dict[str, pd.DataFrame] = {}
 
-    for item in pool.itertuples(index=False):
-        daily_df = _get_daily_ohlcv(
-            base_date=base_date,
-            start_date=to_krx_date(start_date),
-            ticker=item.티커,
-        )
+    pool_items = list(pool.itertuples(index=False))
+    start_date_str = to_krx_date(start_date)
+    worker_count = min(MAX_ANALYSIS_WORKERS, max(1, len(pool_items)))
 
-        if daily_df.empty:
-            continue
-
-        monthly_df = build_monthly_frame(daily_df)
-        if len(monthly_df) < 2:
-            continue
-
-        breakout, signal = evaluate_signal(monthly_df)
-        latest_breakout_date, months_since_breakout = find_latest_breakout(monthly_df)
-        backtest_summary, backtest_return_pct, trade_count, win_rate_pct = run_backtest(monthly_df)
-        current = monthly_df.iloc[-1]
-        previous = monthly_df.iloc[-2]
-        monthly_frames[item.티커] = monthly_df
-
-        results.append(
-            AnalysisResult(
-                ticker=item.티커,
-                name=item.종목명,
-                market=item.시장,
-                close=float(current["close"]),
-                ma10=float(current["ma10"]),
-                previous_close=float(previous["close"]),
-                previous_ma10=float(previous["ma10"]),
-                monthly_volume=float(current["volume"]),
-                volume_change_pct=float(current["volume_change_pct"]) if pd.notna(current["volume_change_pct"]) else None,
-                breakout=breakout,
-                signal=signal,
-                latest_breakout_date=latest_breakout_date,
-                months_since_breakout=months_since_breakout,
-                backtest_summary=backtest_summary,
-                backtest_return_pct=backtest_return_pct,
-                trade_count=trade_count,
-                win_rate_pct=win_rate_pct,
-                market_cap=int(item.시가총액),
-            )
-        )
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(_analyze_single_ticker, item, start_date_str, base_date)
+            for item in pool_items
+        ]
+        for future in as_completed(futures):
+            result, monthly_df = future.result()
+            if result is None or monthly_df is None:
+                continue
+            results.append(result)
+            monthly_frames[result.ticker] = monthly_df
 
     frame = pd.DataFrame(
         [
@@ -370,6 +418,7 @@ def apply_result_filters(
     ascending: bool,
 ) -> pd.DataFrame:
     filtered_df = results_df.copy()
+    has_backtest_values = filtered_df["백테스트 수익률"].notna().any() if "백테스트 수익률" in filtered_df.columns else False
 
     if only_breakouts:
         filtered_df = filtered_df[filtered_df["월봉10개월선돌파여부"] == "예"]
@@ -384,7 +433,8 @@ def apply_result_filters(
     if volume_up_only:
         filtered_df = filtered_df[filtered_df["거래량 증감률"].fillna(float("-inf")) > 0]
 
-    filtered_df = filtered_df[filtered_df["백테스트 수익률"].fillna(float("-inf")) >= min_backtest_return]
+    if has_backtest_values:
+        filtered_df = filtered_df[filtered_df["백테스트 수익률"].fillna(float("-inf")) >= min_backtest_return]
 
     if breakout_within_months > 0:
         filtered_df = filtered_df[

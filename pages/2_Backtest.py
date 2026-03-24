@@ -8,6 +8,7 @@ from src.trend_tracker.page_helpers import (
     render_filter_controls,
     render_query_sidebar,
     render_summary_metrics,
+    run_manual_backtest_for_filtered,
     show_page_loading_bar,
 )
 
@@ -22,7 +23,11 @@ results_df, monthly_frames, _, _ = get_session_results()
 
 if not render_empty_state(results_df):
     render_summary_metrics(results_df)
-    filtered_df = render_filter_controls(results_df, default_sort_by="백테스트 수익률")
+    filtered_df = render_filter_controls(results_df, default_sort_by="돌파경과개월")
+    updated_results_df = run_manual_backtest_for_filtered(filtered_df, monthly_frames)
+    if updated_results_df is not None:
+        results_df = updated_results_df
+        filtered_df = render_filter_controls(results_df, default_sort_by="백테스트 수익률")
     render_backtest_table(filtered_df, results_df)
     render_detail(filtered_df, monthly_frames)
 
