@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 
-DEFAULT_TOP_N = 200
+DEFAULT_TOP_N = 100
 DEFAULT_LOOKBACK_DAYS = 900
 BACKTEST_LOOKBACK_DAYS = 7000
 MA_WINDOW = 10
@@ -13,6 +13,9 @@ MAX_ANALYSIS_WORKERS = 12
 MARKET_OPTIONS = {
     "KOSPI": "KOSPI",
     "KOSDAQ": "KOSDAQ",
+    "NASDAQ": "NASDAQ",
+    "S&P500": "S&P500",
+    "다우산업": "DOW",
 }
 
 

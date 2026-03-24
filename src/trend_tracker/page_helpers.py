@@ -18,57 +18,74 @@ SESSION_MARKET_KEY = "screen_market"
 SESSION_DATE_KEY = "screen_base_date"
 
 
-def show_page_loading_bar(message: str = "페이지를 불러오고 있습니다...") -> st.delta_generator.DeltaGenerator:
-    placeholder = st.empty()
-    placeholder.markdown(
-        f"""
-        <style>
-        .page-loading-wrap {{
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            z-index: 999998;
-            pointer-events: none;
-        }}
-        .page-loading-bar {{
-            height: 4px;
-            width: 100%;
-            overflow: hidden;
-            background: rgba(37, 99, 235, 0.12);
-        }}
-        .page-loading-bar::before {{
-            content: "";
-            display: block;
-            height: 100%;
-            width: 40%;
-            background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
-            animation: page-loading-slide 1.1s ease-in-out infinite;
-        }}
-        .page-loading-label {{
-            position: fixed;
-            top: 10px;
-            right: 16px;
-            background: rgba(15, 23, 42, 0.82);
-            color: white;
-            font-size: 12px;
-            padding: 6px 10px;
-            border-radius: 999px;
-            z-index: 999999;
-        }}
-        @keyframes page-loading-slide {{
-            0% {{ transform: translateX(-120%); }}
-            100% {{ transform: translateX(320%); }}
-        }}
-        </style>
-        <div class="page-loading-wrap">
-            <div class="page-loading-bar"></div>
-        </div>
-        <div class="page-loading-label">{message}</div>
-        """,
-        unsafe_allow_html=True,
-    )
-    return placeholder
+class PageLoadingOverlay:
+    def __init__(self, message: str = "페이지를 불러오고 있습니다...", progress: int = 10):
+        self.placeholder = st.empty()
+        self.update(message=message, progress=progress)
+
+    def update(self, message: str, progress: int) -> None:
+        safe_progress = max(0, min(100, int(progress)))
+        self.placeholder.markdown(
+            f"""
+            <style>
+            .page-loading-wrap {{
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                z-index: 999998;
+                pointer-events: none;
+            }}
+            .page-loading-bar {{
+                height: 6px;
+                width: 100%;
+                overflow: hidden;
+                background: rgba(37, 99, 235, 0.12);
+            }}
+            .page-loading-fill {{
+                height: 100%;
+                width: {safe_progress}%;
+                background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+                transition: width 0.25s ease;
+            }}
+            .page-loading-label {{
+                position: fixed;
+                top: 10px;
+                right: 16px;
+                background: rgba(15, 23, 42, 0.88);
+                color: white;
+                font-size: 12px;
+                padding: 8px 12px;
+                border-radius: 999px;
+                z-index: 999999;
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }}
+            .page-loading-percent {{
+                font-weight: 700;
+                color: #93c5fd;
+            }}
+            </style>
+            <div class="page-loading-wrap">
+                <div class="page-loading-bar">
+                    <div class="page-loading-fill"></div>
+                </div>
+            </div>
+            <div class="page-loading-label">
+                <span>{message}</span>
+                <span class="page-loading-percent">{safe_progress}%</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    def empty(self) -> None:
+        self.placeholder.empty()
+
+
+def show_page_loading_bar(message: str = "페이지를 불러오고 있습니다...", progress: int = 10) -> PageLoadingOverlay:
+    return PageLoadingOverlay(message=message, progress=progress)
 
 
 def _show_loading_modal(message: str = "데이터를 조회하고 있습니다...") -> st.delta_generator.DeltaGenerator:
@@ -183,30 +200,40 @@ def render_summary_metrics(results_df: pd.DataFrame) -> None:
     col4.metric("이탈", exit_count)
 
 
-def render_filter_controls(results_df: pd.DataFrame, default_sort_by: str = "돌파경과개월") -> pd.DataFrame:
+def render_filter_controls(
+    results_df: pd.DataFrame,
+    default_sort_by: str = "돌파경과개월",
+    key_prefix: str = "default",
+) -> pd.DataFrame:
     filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
     with filter_col1:
-        only_breakouts = st.checkbox("돌파 종목만 보기", value=True)
+        only_breakouts = st.checkbox("돌파 종목만 보기", value=True, key=f"{key_prefix}_only_breakouts")
     with filter_col2:
-        name_query = st.text_input("종목명/코드 검색", value="")
+        name_query = st.text_input("종목명/코드 검색", value="", key=f"{key_prefix}_name_query")
     with filter_col3:
         sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증감률", "현재가", "한달간 거래량", "시가총액", "종목명"]
         default_index = sort_options.index(default_sort_by) if default_sort_by in sort_options else 0
-        sort_by = st.selectbox("정렬 기준", sort_options, index=default_index)
+        sort_by = st.selectbox("정렬 기준", sort_options, index=default_index, key=f"{key_prefix}_sort_by")
     with filter_col4:
-        sort_direction = st.selectbox("정렬 방향", ["오름차순", "내림차순"], index=0)
+        sort_direction = st.selectbox("정렬 방향", ["오름차순", "내림차순"], index=0, key=f"{key_prefix}_sort_direction")
 
     advanced_col1, advanced_col2, advanced_col3 = st.columns(3)
     with advanced_col1:
-        volume_up_only = st.checkbox("거래량 증가 종목만", value=False)
+        volume_up_only = st.checkbox("거래량 증가 종목만", value=False, key=f"{key_prefix}_volume_up_only")
     with advanced_col2:
-        min_backtest_return = st.number_input("백테스트 수익률 최소값(%)", value=0.0, step=5.0)
+        min_backtest_return = st.number_input(
+            "백테스트 수익률 최소값(%)",
+            value=0.0,
+            step=5.0,
+            key=f"{key_prefix}_min_backtest_return",
+        )
     with advanced_col3:
         breakout_within_months = st.selectbox(
             "최근 돌파 기준",
             [0, 1, 3, 6, 12],
             index=2,
             format_func=lambda value: "전체" if value == 0 else f"{value}개월 이내",
+            key=f"{key_prefix}_breakout_within_months",
         )
 
     return apply_result_filters(
@@ -295,28 +322,35 @@ def run_manual_backtest_for_filtered(
         return None
 
     target_tickers = filtered_df["종목코드"].tolist()
-    progress_text = st.empty()
-    progress_bar = st.progress(0)
+    progress_title = st.empty()
+    progress_caption = st.empty()
+    progress_bar = st.progress(0, text="백테스트 준비 중...")
 
     updated_df = st.session_state.get(SESSION_RESULTS_KEY)
     if updated_df is None or updated_df.empty:
         progress_bar.empty()
-        progress_text.empty()
+        progress_title.empty()
+        progress_caption.empty()
         return None
 
     total = len(target_tickers)
     for index, ticker in enumerate(target_tickers, start=1):
-        progress_text.info(f"백테스팅 계산 중... {index}/{total} ({ticker})")
+        ticker_name_series = filtered_df.loc[filtered_df["종목코드"] == ticker, "종목명"]
+        ticker_name = ticker_name_series.iloc[0] if not ticker_name_series.empty else ticker
+        percent_complete = int(index / total * 100)
+        progress_title.markdown(f"**백테스트 진행률: {percent_complete}%**")
+        progress_caption.caption(f"현재 계산 중: {ticker_name} ({ticker})  |  {index}/{total}")
         updated_df = enrich_results_with_backtests(
             updated_df,
             monthly_frames,
             screen_base_date,
             [ticker],
         )
-        progress_bar.progress(index / total)
+        progress_bar.progress(index / total, text=f"{ticker_name} ({ticker}) 계산 중...")
 
     progress_bar.empty()
-    progress_text.success(f"백테스트 계산이 완료되었습니다. 대상 {total}종목")
+    progress_title.success(f"백테스트 계산이 완료되었습니다. 대상 {total}종목")
+    progress_caption.caption("현재 필터 기준 결과가 최신 백테스트 값으로 갱신되었습니다.")
     st.session_state[SESSION_RESULTS_KEY] = updated_df
     return updated_df
 

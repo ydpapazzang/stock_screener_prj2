@@ -61,6 +61,9 @@ def get_latest_business_day() -> str:
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
+    if market in {"NASDAQ", "S&P500", "DOW"}:
+        return _get_global_market_pool_from_fdr(market, top_n)
+
     fdr_pool = _get_market_cap_pool_from_fdr(market, top_n)
     if not fdr_pool.empty:
         return fdr_pool
@@ -123,6 +126,55 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
             "종목명": filtered[name_column],
             "시장": market,
             "시가총액": filtered[marcap_column].fillna(0).astype("int64"),
+        }
+    )
+
+
+def _get_global_market_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
+    global LAST_DATA_ERROR
+    fdr = _load_fdr()
+    if fdr is None:
+        LAST_DATA_ERROR = "FinanceDataReader가 설치되어 있지 않습니다."
+        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+
+    source_map = {
+        "NASDAQ": "NASDAQ",
+        "S&P500": "S&P500",
+        "DOW": "DOW",
+    }
+    source = source_map[market]
+
+    try:
+        listing = fdr.StockListing(source)
+    except Exception as exc:
+        LAST_DATA_ERROR = f"{market} 종목목록 조회 실패: {exc}"
+        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+
+    code_column = "Symbol" if "Symbol" in listing.columns else "Code" if "Code" in listing.columns else None
+    name_column = "Name" if "Name" in listing.columns else None
+    market_cap_candidates = ["Market Cap", "Marcap", "MarketCap", "시가총액"]
+    marcap_column = next((column for column in market_cap_candidates if column in listing.columns), None)
+
+    if not code_column or not name_column:
+        LAST_DATA_ERROR = f"{market} 종목목록 컬럼 부족: {list(listing.columns)}"
+        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+
+    filtered = listing.copy()
+    if marcap_column:
+        filtered = filtered.sort_values(marcap_column, ascending=False)
+        market_caps = pd.to_numeric(filtered[marcap_column], errors="coerce").fillna(0)
+    else:
+        market_caps = pd.Series([0] * len(filtered), index=filtered.index)
+
+    filtered = filtered.head(top_n)
+    market_caps = market_caps.loc[filtered.index]
+
+    return pd.DataFrame(
+        {
+            "티커": filtered[code_column].astype(str),
+            "종목명": filtered[name_column].astype(str),
+            "시장": market,
+            "시가총액": market_caps.astype("int64"),
         }
     )
 
