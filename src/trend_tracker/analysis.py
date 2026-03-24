@@ -30,14 +30,14 @@ class AnalysisResult:
     signal: str
     latest_breakout_date: pd.Timestamp | None
     months_since_breakout: int | None
-    backtest_summary: str
-    backtest_return_pct: float | None
-    backtest_mdd_pct: float | None
-    backtest_cagr_pct: float | None
-    average_hold_months: float | None
-    trade_count: int
-    win_rate_pct: float | None
-    market_cap: int
+    backtest_summary: str = "미계산"
+    backtest_return_pct: float | None = None
+    backtest_mdd_pct: float | None = None
+    backtest_cagr_pct: float | None = None
+    average_hold_months: float | None = None
+    trade_count: int = 0
+    win_rate_pct: float | None = None
+    market_cap: int = 0
 
 
 @dataclass
