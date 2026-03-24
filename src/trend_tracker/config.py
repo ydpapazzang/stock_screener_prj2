@@ -18,6 +18,14 @@ MARKET_OPTIONS = {
     "다우산업": "DOW",
 }
 
+ALERT_MARKETS = [
+    ("KOSPI", "KOSPI"),
+    ("KOSDAQ", "KOSDAQ"),
+    ("NASDAQ", "NASDAQ"),
+    ("S&P500", "S&P500"),
+    ("다우산업", "DOW"),
+]
+
 
 DOW_COMPONENTS = [
     ("MMM", "3M"),
