@@ -12,6 +12,7 @@ from .config import BACKTEST_BAR_LIMIT, BACKTEST_LOOKBACK_DAYS, DEFAULT_LOOKBACK
 from .formatting import format_percent, to_krx_date
 
 LAST_DATA_ERROR: str | None = None
+LAST_DATA_DIAGNOSTICS: dict[str, object] = {}
 
 
 @dataclass
@@ -44,6 +45,35 @@ def _load_fdr():
     return fdr
 
 
+def _reset_diagnostics() -> None:
+    global LAST_DATA_DIAGNOSTICS
+    LAST_DATA_DIAGNOSTICS = {
+        "pool_source": "",
+        "pool_fallbacks": [],
+        "ohlcv_sources": {},
+        "errors": [],
+    }
+
+
+def _set_pool_source(source: str) -> None:
+    LAST_DATA_DIAGNOSTICS["pool_source"] = source
+
+
+def _add_pool_fallback(message: str) -> None:
+    LAST_DATA_DIAGNOSTICS.setdefault("pool_fallbacks", []).append(message)
+
+
+def _increment_ohlcv_source(source: str) -> None:
+    counts = LAST_DATA_DIAGNOSTICS.setdefault("ohlcv_sources", {})
+    counts[source] = counts.get(source, 0) + 1
+
+
+def _add_error(message: str) -> None:
+    errors = LAST_DATA_DIAGNOSTICS.setdefault("errors", [])
+    if len(errors) < 10:
+        errors.append(message)
+
+
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def get_latest_business_day() -> str:
     today = datetime.now().date()
@@ -66,17 +96,22 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
 
     fdr_pool = _get_market_cap_pool_from_fdr(market, top_n)
     if not fdr_pool.empty:
+        _set_pool_source("FinanceDataReader")
         return fdr_pool
 
     try:
         market_cap = stock.get_market_cap_by_ticker(base_date, market=market)
     except Exception as exc:
         LAST_DATA_ERROR = f"FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회도 실패: {exc}"
+        _add_pool_fallback("FinanceDataReader -> pykrx")
+        _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     required_columns = {"시가총액"}
     if market_cap.empty or not required_columns.issubset(set(market_cap.columns)):
         LAST_DATA_ERROR = "FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회 응답에도 필요한 컬럼이 없습니다."
+        _add_pool_fallback("FinanceDataReader -> pykrx")
+        _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     market_cap = market_cap.reset_index()
@@ -86,6 +121,8 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
     market_cap["종목명"] = market_cap["티커"].apply(stock.get_market_ticker_name)
     market_cap["시장"] = market
     market_cap = market_cap.sort_values("시가총액", ascending=False).head(top_n)
+    _set_pool_source("pykrx")
+    _add_pool_fallback("FinanceDataReader -> pykrx")
     return market_cap[["티커", "종목명", "시장", "시가총액"]]
 
 
@@ -100,10 +137,12 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
         listing = fdr.StockListing("KRX-MARCAP")
     except Exception as exc:
         LAST_DATA_ERROR = f"FDR KRX-MARCAP 조회 실패: {exc}"
+        _add_pool_fallback("KRX-MARCAP -> KRX")
         try:
             listing = fdr.StockListing("KRX")
         except Exception as inner_exc:
             LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR KRX 조회 실패: {inner_exc}"
+            _add_error(LAST_DATA_ERROR)
             return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     market_column = "Market" if "Market" in listing.columns else None
@@ -113,6 +152,7 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
 
     if not all([market_column, marcap_column, code_column, name_column]):
         LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR 종목목록 컬럼 부족: {list(listing.columns)}" if LAST_DATA_ERROR else f"FDR 종목목록 컬럼 부족: {list(listing.columns)}"
+        _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     filtered = listing[listing[market_column].astype(str).str.upper() == market.upper()].copy()
@@ -120,6 +160,7 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     filtered = filtered.sort_values(marcap_column, ascending=False).head(top_n)
+    _set_pool_source("FinanceDataReader")
     return pd.DataFrame(
         {
             "티커": filtered[code_column].astype(str).str.zfill(6),
@@ -133,6 +174,7 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
 def _get_global_market_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
     if market == "DOW":
+        _set_pool_source("Static DOW30")
         return pd.DataFrame(
             {
                 "티커": [symbol for symbol, _ in DOW_COMPONENTS[:top_n]],
@@ -157,6 +199,7 @@ def _get_global_market_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
         listing = fdr.StockListing(source)
     except Exception as exc:
         LAST_DATA_ERROR = f"{market} 종목목록 조회 실패: {exc}"
+        _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     code_column = "Symbol" if "Symbol" in listing.columns else "Code" if "Code" in listing.columns else None
@@ -166,6 +209,7 @@ def _get_global_market_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
 
     if not code_column or not name_column:
         LAST_DATA_ERROR = f"{market} 종목목록 컬럼 부족: {list(listing.columns)}"
+        _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     filtered = listing.copy()
@@ -177,6 +221,7 @@ def _get_global_market_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
 
     filtered = filtered.head(top_n)
     market_caps = market_caps.loc[filtered.index]
+    _set_pool_source(f"FinanceDataReader {market}")
 
     return pd.DataFrame(
         {
@@ -212,8 +257,26 @@ def _normalize_daily_ohlcv(daily_df: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
-def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str) -> pd.DataFrame:
+def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str, market: str) -> tuple[pd.DataFrame, str]:
     global LAST_DATA_ERROR
+    fdr = _load_fdr()
+
+    if fdr is not None:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y%m%d").date()
+            end_dt = datetime.strptime(base_date, "%Y%m%d").date() + timedelta(days=1)
+            daily_df = fdr.DataReader(ticker, start_dt, end_dt)
+            normalized = _normalize_daily_ohlcv(daily_df)
+            if not normalized.empty:
+                return normalized, "FinanceDataReader"
+        except Exception as exc:
+            LAST_DATA_ERROR = f"FDR 개별 종목 OHLCV 조회 실패({ticker}): {exc}"
+
+    if market not in {"KOSPI", "KOSDAQ"}:
+        if LAST_DATA_ERROR:
+            _add_error(LAST_DATA_ERROR)
+        return pd.DataFrame(columns=["종가", "거래량"]), "none"
+
     try:
         daily_df = stock.get_market_ohlcv_by_date(
             fromdate=start_date,
@@ -222,40 +285,29 @@ def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str) -> pd.DataFra
         )
         normalized = _normalize_daily_ohlcv(daily_df)
         if not normalized.empty:
-            return normalized
+            return normalized, "pykrx"
     except Exception as exc:
-        LAST_DATA_ERROR = f"pykrx 개별 종목 OHLCV 조회 실패({ticker}): {exc}"
+        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / pykrx 개별 종목 OHLCV 조회 실패({ticker}): {exc}" if LAST_DATA_ERROR else f"pykrx 개별 종목 OHLCV 조회 실패({ticker}): {exc}"
 
-    fdr = _load_fdr()
-    if fdr is None:
-        return pd.DataFrame(columns=["종가", "거래량"])
-
-    try:
-        start_dt = datetime.strptime(start_date, "%Y%m%d").date()
-        end_dt = datetime.strptime(base_date, "%Y%m%d").date() + timedelta(days=1)
-        daily_df = fdr.DataReader(ticker, start_dt, end_dt)
-        normalized = _normalize_daily_ohlcv(daily_df)
-        if not normalized.empty:
-            return normalized
-    except Exception as exc:
-        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR 개별 종목 OHLCV 조회 실패({ticker}): {exc}" if LAST_DATA_ERROR else f"FDR 개별 종목 OHLCV 조회 실패({ticker}): {exc}"
-
-    return pd.DataFrame(columns=["종가", "거래량"])
+    if LAST_DATA_ERROR:
+        _add_error(LAST_DATA_ERROR)
+    return pd.DataFrame(columns=["종가", "거래량"]), "none"
 
 
-def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[AnalysisResult | None, pd.DataFrame | None]:
-    daily_df = _get_daily_ohlcv(
+def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[AnalysisResult | None, pd.DataFrame | None, str]:
+    daily_df, source_used = _get_daily_ohlcv(
         base_date=base_date,
         start_date=start_date,
         ticker=item.티커,
+        market=item.시장,
     )
 
     if daily_df.empty:
-        return None, None
+        return None, None, source_used
 
     monthly_df = build_monthly_frame(daily_df)
     if len(monthly_df) < 2:
-        return None, None
+        return None, None, source_used
 
     breakout, signal = evaluate_signal(monthly_df)
     latest_breakout_date, months_since_breakout = find_latest_breakout(monthly_df)
@@ -282,7 +334,7 @@ def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[Analy
         win_rate_pct=None,
         market_cap=int(item.시가총액),
     )
-    return result, monthly_df
+    return result, monthly_df, source_used
 
 
 def build_monthly_frame(daily_df: pd.DataFrame) -> pd.DataFrame:
@@ -385,10 +437,13 @@ def enrich_results_with_backtests(
     backtest_start_date = to_krx_date(datetime.strptime(base_date, "%Y%m%d").date() - timedelta(days=BACKTEST_LOOKBACK_DAYS))
 
     for ticker in target_tickers:
-        daily_df = _get_daily_ohlcv(
+        market_series = updated_df.loc[updated_df["종목코드"] == ticker, "시장"]
+        market = market_series.iloc[0] if not market_series.empty else ""
+        daily_df, source_used = _get_daily_ohlcv(
             base_date=base_date,
             start_date=backtest_start_date,
             ticker=ticker,
+            market=market,
         )
         if daily_df.empty:
             continue
@@ -404,6 +459,7 @@ def enrich_results_with_backtests(
         updated_df.loc[ticker_mask, "백테스트 수익률"] = backtest_return_pct
         updated_df.loc[ticker_mask, "매매 횟수"] = trade_count
         updated_df.loc[ticker_mask, "승률"] = win_rate_pct
+        updated_df.loc[ticker_mask, "가격데이터소스"] = source_used
 
     breakout_sort = pd.CategoricalDtype(["예", "아니오"], ordered=True)
     signal_sort = pd.CategoricalDtype(["돌파", "상단 유지", "하단 위치", "이탈"], ordered=True)
@@ -418,6 +474,7 @@ def enrich_results_with_backtests(
 def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     global LAST_DATA_ERROR
     LAST_DATA_ERROR = None
+    _reset_diagnostics()
     end_date = datetime.strptime(base_date, "%Y%m%d").date()
     start_date = end_date - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     pool = get_market_cap_pool(base_date, market, top_n)
@@ -435,7 +492,9 @@ def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFram
             for item in pool_items
         ]
         for future in as_completed(futures):
-            result, monthly_df = future.result()
+            result, monthly_df, source_used = future.result()
+            if source_used and source_used != "none":
+                _increment_ohlcv_source(source_used)
             if result is None or monthly_df is None:
                 continue
             results.append(result)
@@ -460,6 +519,7 @@ def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFram
                 "매매 횟수": item.trade_count,
                 "승률": item.win_rate_pct,
                 "시가총액": item.market_cap,
+                "가격데이터소스": "",
             }
             for item in results
         ]
@@ -518,3 +578,7 @@ def apply_result_filters(
 
 def get_last_data_error() -> str | None:
     return LAST_DATA_ERROR
+
+
+def get_last_data_diagnostics() -> dict[str, object]:
+    return LAST_DATA_DIAGNOSTICS.copy()

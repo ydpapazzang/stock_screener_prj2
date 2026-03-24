@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from .analysis import analyze_market, apply_result_filters, enrich_results_with_backtests, get_last_data_error, get_latest_business_day
+from .analysis import analyze_market, apply_result_filters, enrich_results_with_backtests, get_last_data_diagnostics, get_last_data_error, get_latest_business_day
 from .charts import create_monthly_chart
 from .config import DEFAULT_TOP_N, MARKET_OPTIONS
 from .formatting import format_number, format_percent, to_krx_date
@@ -17,6 +17,7 @@ SESSION_FRAMES_KEY = "monthly_frames"
 SESSION_MARKET_KEY = "screen_market"
 SESSION_DATE_KEY = "screen_base_date"
 SESSION_BASE_DATE_INPUT_KEY = "base_date_input"
+SESSION_DATA_DIAGNOSTICS_KEY = "last_data_diagnostics"
 
 
 def _set_today_base_date(latest_business_day):
@@ -186,6 +187,7 @@ def render_query_sidebar() -> None:
         st.session_state[SESSION_MARKET_KEY] = market_label
         st.session_state[SESSION_DATE_KEY] = to_krx_date(base_date)
         st.session_state["last_data_error"] = get_last_data_error()
+        st.session_state[SESSION_DATA_DIAGNOSTICS_KEY] = get_last_data_diagnostics()
 
 
 def get_session_results() -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame], str | None, str | None]:
@@ -206,6 +208,7 @@ def render_empty_state(results_df: pd.DataFrame | None) -> bool:
         last_error = st.session_state.get("last_data_error")
         if last_error:
             st.error(f"데이터 진단: {last_error}")
+        render_data_source_diagnostics()
         return True
     return False
 
@@ -451,6 +454,7 @@ def render_settings_page() -> None:
     )
     st.dataframe(config_df, use_container_width=True, hide_index=True)
     st.caption("설정값 파일 위치: src/trend_tracker/config.py")
+    render_data_source_diagnostics()
 
 
 def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
@@ -464,3 +468,32 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["백테스팅 결과"] = display_df["백테스팅 결과"].fillna("미계산")
     display_df["돌파경과개월"] = display_df["돌파경과개월"].map(lambda value: "-" if pd.isna(value) else int(value))
     return display_df
+
+
+def render_data_source_diagnostics() -> None:
+    diagnostics = st.session_state.get(SESSION_DATA_DIAGNOSTICS_KEY, {})
+    if not diagnostics:
+        return
+
+    with st.expander("데이터 소스 진단", expanded=False):
+        pool_source = diagnostics.get("pool_source") or "-"
+        pool_fallbacks = diagnostics.get("pool_fallbacks") or []
+        ohlcv_sources = diagnostics.get("ohlcv_sources") or {}
+        errors = diagnostics.get("errors") or []
+
+        st.write(f"시총 풀 소스: `{pool_source}`")
+        if pool_fallbacks:
+            st.write("시총 풀 fallback 경로:")
+            for item in pool_fallbacks:
+                st.write(f"- {item}")
+
+        if ohlcv_sources:
+            source_df = pd.DataFrame(
+                [{"소스": key, "건수": value} for key, value in ohlcv_sources.items()]
+            )
+            st.dataframe(source_df, use_container_width=True, hide_index=True)
+
+        if errors:
+            st.write("최근 에러:")
+            for item in errors[:5]:
+                st.code(item, language="text")
