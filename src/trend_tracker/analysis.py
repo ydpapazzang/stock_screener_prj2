@@ -536,15 +536,17 @@ def enrich_results_with_backtests(
         monthly_frames[ticker] = monthly_df
         backtest = run_backtest(monthly_df)
         ticker_mask = updated_df["종목코드"] == ticker
-        updated_df.loc[ticker_mask, "백테스팅 결과"] = backtest.summary
-        updated_df.loc[ticker_mask, "백테스트 수익률"] = backtest.cumulative_return_pct
-        updated_df.loc[ticker_mask, "MDD"] = backtest.mdd_pct
-        updated_df.loc[ticker_mask, "CAGR"] = backtest.cagr_pct
-        updated_df.loc[ticker_mask, "평균보유개월"] = backtest.average_hold_months
-        updated_df.loc[ticker_mask, "매매 횟수"] = backtest.trade_count
-        updated_df.loc[ticker_mask, "승률"] = backtest.win_rate_pct
-        updated_df.loc[ticker_mask, "매매로그"] = [backtest.trade_log]
-        updated_df.loc[ticker_mask, "가격데이터소스"] = source_used
+        row_indexes = updated_df.index[ticker_mask].tolist()
+        for row_index in row_indexes:
+            updated_df.at[row_index, "백테스팅 결과"] = backtest.summary
+            updated_df.at[row_index, "백테스트 수익률"] = backtest.cumulative_return_pct
+            updated_df.at[row_index, "MDD"] = backtest.mdd_pct
+            updated_df.at[row_index, "CAGR"] = backtest.cagr_pct
+            updated_df.at[row_index, "평균보유개월"] = backtest.average_hold_months
+            updated_df.at[row_index, "매매 횟수"] = backtest.trade_count
+            updated_df.at[row_index, "승률"] = backtest.win_rate_pct
+            updated_df.at[row_index, "매매로그"] = backtest.trade_log
+            updated_df.at[row_index, "가격데이터소스"] = source_used
 
     breakout_sort = pd.CategoricalDtype(["예", "아니오"], ordered=True)
     signal_sort = pd.CategoricalDtype(["돌파", "상단 유지", "하단 위치", "이탈"], ordered=True)
