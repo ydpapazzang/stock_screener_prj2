@@ -1,0 +1,379 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+import pandas as pd
+import streamlit as st
+
+from .analysis import analyze_market, apply_result_filters, get_last_data_error, get_latest_business_day
+from .charts import create_monthly_chart
+from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_bot_token, get_telegram_chat_id, is_telegram_configured
+from .formatting import format_number, format_percent, to_krx_date
+from .notifications import build_telegram_message, send_telegram_message
+
+
+SESSION_RESULTS_KEY = "results_df"
+SESSION_FRAMES_KEY = "monthly_frames"
+SESSION_MARKET_KEY = "screen_market"
+SESSION_DATE_KEY = "screen_base_date"
+
+
+def show_page_loading_bar(message: str = "페이지를 불러오고 있습니다...") -> st.delta_generator.DeltaGenerator:
+    placeholder = st.empty()
+    placeholder.markdown(
+        f"""
+        <style>
+        .page-loading-wrap {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 999998;
+            pointer-events: none;
+        }}
+        .page-loading-bar {{
+            height: 4px;
+            width: 100%;
+            overflow: hidden;
+            background: rgba(37, 99, 235, 0.12);
+        }}
+        .page-loading-bar::before {{
+            content: "";
+            display: block;
+            height: 100%;
+            width: 40%;
+            background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+            animation: page-loading-slide 1.1s ease-in-out infinite;
+        }}
+        .page-loading-label {{
+            position: fixed;
+            top: 10px;
+            right: 16px;
+            background: rgba(15, 23, 42, 0.82);
+            color: white;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            z-index: 999999;
+        }}
+        @keyframes page-loading-slide {{
+            0% {{ transform: translateX(-120%); }}
+            100% {{ transform: translateX(320%); }}
+        }}
+        </style>
+        <div class="page-loading-wrap">
+            <div class="page-loading-bar"></div>
+        </div>
+        <div class="page-loading-label">{message}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return placeholder
+
+
+def _show_loading_modal(message: str = "데이터를 조회하고 있습니다...") -> st.delta_generator.DeltaGenerator:
+    placeholder = st.empty()
+    placeholder.markdown(
+        f"""
+        <style>
+        .loading-overlay {{
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 999999;
+        }}
+        .loading-modal {{
+            background: white;
+            padding: 28px 32px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
+            min-width: 320px;
+            text-align: center;
+            font-weight: 600;
+        }}
+        .loading-spinner {{
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 16px auto;
+            border: 5px solid #e5e7eb;
+            border-top: 5px solid #2563eb;
+            border-radius: 50%;
+            animation: loading-spin 0.9s linear infinite;
+        }}
+        @keyframes loading-spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        </style>
+        <div class="loading-overlay">
+            <div class="loading-modal">
+                <div class="loading-spinner"></div>
+                <div>{message}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return placeholder
+
+
+def render_query_sidebar() -> None:
+    with st.sidebar:
+        st.header("조회 설정")
+        latest_business_day = datetime.strptime(get_latest_business_day(), "%Y%m%d").date()
+        base_date = st.date_input("기준 일자", value=latest_business_day, max_value=latest_business_day)
+        market_label = st.selectbox("시장", list(MARKET_OPTIONS.keys()), index=0)
+        top_n = st.slider("대상 종목 수", min_value=30, max_value=300, value=DEFAULT_TOP_N, step=10)
+        query_button = st.button("조회", type="primary", use_container_width=True)
+
+    if query_button:
+        loading_modal = _show_loading_modal("스크리닝 데이터를 조회하고 있습니다...")
+        try:
+            with st.spinner("스크리닝 데이터를 조회하고 있습니다..."):
+                results_df, monthly_frames = analyze_market(
+                    base_date=to_krx_date(base_date),
+                    market=MARKET_OPTIONS[market_label],
+                    top_n=top_n,
+                )
+        finally:
+            loading_modal.empty()
+
+        st.session_state[SESSION_RESULTS_KEY] = results_df
+        st.session_state[SESSION_FRAMES_KEY] = monthly_frames
+        st.session_state[SESSION_MARKET_KEY] = market_label
+        st.session_state[SESSION_DATE_KEY] = to_krx_date(base_date)
+        st.session_state["last_data_error"] = get_last_data_error()
+
+
+def get_session_results() -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame], str | None, str | None]:
+    return (
+        st.session_state.get(SESSION_RESULTS_KEY),
+        st.session_state.get(SESSION_FRAMES_KEY, {}),
+        st.session_state.get(SESSION_MARKET_KEY),
+        st.session_state.get(SESSION_DATE_KEY),
+    )
+
+
+def render_empty_state(results_df: pd.DataFrame | None) -> bool:
+    if results_df is None:
+        st.info("왼쪽 사이드바에서 조건을 고른 뒤 `조회` 버튼을 눌러주세요.")
+        return True
+    if results_df.empty:
+        st.warning("조회 결과가 없습니다. 기준 일자나 시장을 바꿔 다시 시도해주세요. 네트워크 문제 또는 pykrx/KRX 응답 형식 오류일 수도 있습니다.")
+        last_error = st.session_state.get("last_data_error")
+        if last_error:
+            st.error(f"데이터 진단: {last_error}")
+        return True
+    return False
+
+
+def render_summary_metrics(results_df: pd.DataFrame) -> None:
+    breakout_count = int((results_df["월봉10개월선돌파여부"] == "예").sum())
+    hold_count = int((results_df["현재상태"] == "상단 유지").sum())
+    below_count = int((results_df["현재상태"] == "하단 위치").sum())
+    exit_count = int((results_df["현재상태"] == "이탈").sum())
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("돌파 종목", breakout_count)
+    col2.metric("상단 유지", hold_count)
+    col3.metric("하단 위치", below_count)
+    col4.metric("이탈", exit_count)
+
+
+def render_filter_controls(results_df: pd.DataFrame, default_sort_by: str = "돌파경과개월") -> pd.DataFrame:
+    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+    with filter_col1:
+        only_breakouts = st.checkbox("돌파 종목만 보기", value=True)
+    with filter_col2:
+        name_query = st.text_input("종목명/코드 검색", value="")
+    with filter_col3:
+        sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증감률", "현재가", "한달간 거래량", "시가총액", "종목명"]
+        default_index = sort_options.index(default_sort_by) if default_sort_by in sort_options else 0
+        sort_by = st.selectbox("정렬 기준", sort_options, index=default_index)
+    with filter_col4:
+        sort_direction = st.selectbox("정렬 방향", ["오름차순", "내림차순"], index=0)
+
+    advanced_col1, advanced_col2, advanced_col3 = st.columns(3)
+    with advanced_col1:
+        volume_up_only = st.checkbox("거래량 증가 종목만", value=False)
+    with advanced_col2:
+        min_backtest_return = st.number_input("백테스트 수익률 최소값(%)", value=0.0, step=5.0)
+    with advanced_col3:
+        breakout_within_months = st.selectbox(
+            "최근 돌파 기준",
+            [0, 1, 3, 6, 12],
+            index=2,
+            format_func=lambda value: "전체" if value == 0 else f"{value}개월 이내",
+        )
+
+    return apply_result_filters(
+        results_df=results_df,
+        name_query=name_query,
+        only_breakouts=only_breakouts,
+        volume_up_only=volume_up_only,
+        min_backtest_return=min_backtest_return,
+        breakout_within_months=breakout_within_months,
+        sort_by=sort_by,
+        ascending=sort_direction == "오름차순",
+    )
+
+
+def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
+    st.subheader("스크리닝 결과")
+    st.caption(f"현재 표시 종목 수: {len(filtered_df)} / 전체 조회 종목 수: {len(results_df)}")
+
+    display_df = _format_common_display_df(filtered_df)
+    if display_df.empty:
+        st.warning("현재 필터 조건에 맞는 종목이 없습니다.")
+        return
+
+    st.dataframe(
+        display_df[
+            [
+                "시장",
+                "종목명",
+                "종목코드",
+                "현재가",
+                "월봉10개월선돌파여부",
+                "최근 돌파월",
+                "돌파경과개월",
+                "한달간 거래량",
+                "거래량 증감률",
+                "백테스팅 결과",
+                "백테스트 수익률",
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
+    st.subheader("백테스트 결과")
+    st.caption(f"현재 표시 종목 수: {len(filtered_df)} / 전체 조회 종목 수: {len(results_df)}")
+
+    display_df = _format_common_display_df(filtered_df)
+    if display_df.empty:
+        st.warning("현재 필터 조건에 맞는 종목이 없습니다.")
+        return
+
+    st.dataframe(
+        display_df[
+            [
+                "시장",
+                "종목명",
+                "종목코드",
+                "월봉10개월선돌파여부",
+                "최근 돌파월",
+                "백테스팅 결과",
+                "백테스트 수익률",
+                "매매 횟수",
+                "승률",
+                "거래량 증감률",
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def render_telegram_panel(filtered_df: pd.DataFrame, results_df: pd.DataFrame, screen_base_date: str, screen_market: str) -> None:
+    telegram_source_df = filtered_df if not filtered_df.empty else results_df[results_df["월봉10개월선돌파여부"] == "예"]
+    telegram_message = build_telegram_message(telegram_source_df, screen_base_date, screen_market)
+
+    action_col1, action_col2 = st.columns([3, 1])
+    with action_col1:
+        st.subheader("텔레그램 알림 미리보기")
+        st.code(telegram_message, language="text")
+    with action_col2:
+        st.subheader("수동 전송")
+        chat_id = get_telegram_chat_id() or "(미설정)"
+        st.caption(f"Chat ID: {chat_id}")
+        if st.button("텔레그램 알림", use_container_width=True):
+            with st.spinner("텔레그램으로 전송하는 중입니다..."):
+                success, message = send_telegram_message(telegram_message)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+
+
+def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFrame]) -> None:
+    if filtered_df.empty:
+        return
+
+    st.subheader("종목 상세")
+    selected_name = st.selectbox("상세 조회 종목", filtered_df["종목명"].tolist())
+    selected_row = filtered_df[filtered_df["종목명"] == selected_name].iloc[0]
+    selected_monthly = monthly_frames[selected_row["종목코드"]]
+
+    info1, info2, info3, info4 = st.columns(4)
+    info1.metric("현재 상태", str(selected_row["현재상태"]))
+    info2.metric("현재가", f"{format_number(selected_row['현재가'])}원")
+    info3.metric("10개월선", f"{format_number(selected_row['10개월선'])}원")
+    info4.metric("백테스트 수익률", format_percent(selected_row["백테스트 수익률"]))
+
+    st.plotly_chart(create_monthly_chart(selected_monthly, selected_name), use_container_width=True)
+
+    history_df = selected_monthly.tail(24).copy().reset_index()
+    date_column = history_df.columns[0]
+    history_df = history_df.rename(columns={date_column: "날짜"})
+    history_df["날짜"] = pd.to_datetime(history_df["날짜"]).dt.strftime("%Y-%m")
+    history_df = history_df.rename(
+        columns={
+            "close": "월봉 종가",
+            "ma10": "10개월선",
+            "volume": "월 거래량",
+            "volume_change_pct": "거래량 증감률",
+            "monthly_return_pct": "월간 수익률",
+        }
+    )
+    history_df["월봉 종가"] = history_df["월봉 종가"].map(format_number)
+    history_df["10개월선"] = history_df["10개월선"].map(format_number)
+    history_df["월 거래량"] = history_df["월 거래량"].map(format_number)
+    history_df["거래량 증감률"] = history_df["거래량 증감률"].map(format_percent)
+    history_df["월간 수익률"] = history_df["월간 수익률"].map(format_percent)
+    st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+
+def render_settings_page() -> None:
+    st.subheader("설정 정보")
+    st.write("현재 앱에서 사용하는 핵심 설정입니다.")
+
+    config_df = pd.DataFrame(
+        [
+            {"항목": "대상 시장", "값": ", ".join(MARKET_OPTIONS.keys())},
+            {"항목": "기본 조회 종목 수", "값": DEFAULT_TOP_N},
+            {"항목": "텔레그램 설정 여부", "값": "설정됨" if is_telegram_configured() else "미설정"},
+            {"항목": "텔레그램 Chat ID", "값": get_telegram_chat_id() or "(미설정)"},
+            {"항목": "텔레그램 Bot Token", "값": _mask_token(get_telegram_bot_token())},
+        ]
+    )
+    st.dataframe(config_df, use_container_width=True, hide_index=True)
+    st.caption("설정값 파일 위치: src/trend_tracker/config.py")
+    st.write("Streamlit Community Cloud에서는 App settings > Secrets에, GitHub Actions에서는 Repository secrets에 같은 키를 넣으면 됩니다.")
+    st.code(
+        'TELEGRAM_BOT_TOKEN="..."\nTELEGRAM_CHAT_ID="..."',
+        language="toml",
+    )
+
+
+def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
+    display_df = filtered_df.copy()
+    display_df["현재가"] = display_df["현재가"].map(format_number)
+    display_df["10개월선"] = display_df["10개월선"].map(format_number)
+    display_df["한달간 거래량"] = display_df["한달간 거래량"].map(format_number)
+    display_df["거래량 증감률"] = display_df["거래량 증감률"].map(format_percent)
+    display_df["백테스트 수익률"] = display_df["백테스트 수익률"].map(format_percent)
+    display_df["승률"] = display_df["승률"].map(format_percent)
+    display_df["돌파경과개월"] = display_df["돌파경과개월"].map(lambda value: "-" if pd.isna(value) else int(value))
+    return display_df
+
+
+def _mask_token(token: str) -> str:
+    if len(token) < 10:
+        return "***"
+    return f"{token[:8]}...{token[-4:]}"

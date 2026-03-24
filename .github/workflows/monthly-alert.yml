@@ -1,0 +1,49 @@
+name: Monthly Alert
+
+# 08:00 UTC = 17:00 Asia/Seoul
+on:
+  schedule:
+    - cron: "0 8 28-31 * *"
+  workflow_dispatch:
+    inputs:
+      base_date:
+        description: "기준 일자 (YYYYMMDD, optional)"
+        required: false
+        type: string
+      force:
+        description: "월말 여부 무시하고 강제 실행"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  monthly-alert:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools
+          pip install -r requirements.txt
+
+      - name: Run monthly alert
+        run: |
+          DATE_ARG=""
+          FORCE_ARG=""
+          if [ -n "${{ github.event.inputs.base_date }}" ]; then
+            DATE_ARG="--date ${{ github.event.inputs.base_date }}"
+          fi
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FORCE_ARG="--force"
+          fi
+          python scripts/monthly_alert.py $DATE_ARG $FORCE_ARG
