@@ -246,7 +246,7 @@ def render_filter_controls(
         name_query = st.text_input("종목명/코드 검색", value="", key=f"{key_prefix}_name_query")
 
     sort_col1, sort_col2, sort_col3 = st.columns([1, 1, 1])
-    sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증가율", "현재가", "한달간 거래량", "시가총액", "종목명"]
+    sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증감률", "현재가", "한달간 거래량", "시가총액", "종목명"]
     default_index = sort_options.index(default_sort_by) if default_sort_by in sort_options else 0
     with sort_col1:
         sort_by = st.selectbox("정렬 기준", sort_options, index=default_index, key=f"{key_prefix}_sort_by")
@@ -305,7 +305,7 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
                 "최근 돌파월",
                 "돌파경과개월",
                 "한달간 거래량",
-                "거래량 증가율",
+                "거래량 증감률",
             ]
         ],
         use_container_width=True,
@@ -466,14 +466,14 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
                 "close": "월봉 종가",
                 "ma10": "10개월선",
                 "volume": "월 거래량",
-                "volume_change_pct": "거래량 증가율",
+                "volume_change_pct": "거래량 증감률",
                 "monthly_return_pct": "월간 수익률",
             }
         )
         history_df["월봉 종가"] = history_df["월봉 종가"].map(format_number)
         history_df["10개월선"] = history_df["10개월선"].map(format_number)
         history_df["월 거래량"] = history_df["월 거래량"].map(format_number)
-        history_df["거래량 증가율"] = history_df["거래량 증가율"].map(format_percent)
+        history_df["거래량 증감률"] = history_df["거래량 증감률"].map(format_percent)
         history_df["월간 수익률"] = history_df["월간 수익률"].map(format_percent)
         st.dataframe(history_df, use_container_width=True, hide_index=True)
 
@@ -516,7 +516,7 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     display_df["현재가"] = display_df["현재가"].map(format_number)
     display_df["10개월선"] = display_df["10개월선"].map(format_number)
     display_df["한달간 거래량"] = display_df["한달간 거래량"].map(format_number)
-    display_df["거래량 증가율"] = display_df["거래량 증가율"].map(format_percent)
+    display_df["거래량 증감률"] = display_df["거래량 증감률"].map(format_percent)
     display_df["백테스트 수익률"] = display_df["백테스트 수익률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
     display_df["MDD"] = display_df["MDD"].map(lambda value: "미계산" if pd.isna(value) else format_percent(-abs(value)))
     display_df["CAGR"] = display_df["CAGR"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))

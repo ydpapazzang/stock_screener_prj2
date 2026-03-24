@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
 import requests
 
@@ -8,13 +10,11 @@ from .formatting import format_number
 
 
 def build_telegram_message(results_df: pd.DataFrame, base_date: str, market: str) -> str:
-    from datetime import datetime
-
     label_date = datetime.strptime(base_date, "%Y%m%d").strftime("%Y년 %m월")
     breakouts = results_df[results_df["월봉10개월선돌파여부"] == "예"].head(10)
 
     lines = [f"[{label_date} 말일 {market} 10개월선 스크리닝]", ""]
-    lines.append("🟢 월봉 10개월선 돌파 종목")
+    lines.append("● 월봉 10개월선 돌파 종목")
 
     if breakouts.empty:
         lines.append("- 이번 조회에서는 돌파 종목이 없습니다.")
@@ -33,7 +33,7 @@ def send_telegram_message(message: str) -> tuple[bool, str]:
     bot_token = get_telegram_bot_token()
     chat_id = get_telegram_chat_id()
     if not bot_token or not chat_id:
-        return False, "텔레그램 환경변수/시크릿이 설정되지 않았습니다."
+        return False, "텔레그램 시크릿이 설정되어 있지 않습니다."
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
