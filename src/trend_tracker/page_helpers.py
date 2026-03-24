@@ -19,6 +19,10 @@ SESSION_DATE_KEY = "screen_base_date"
 SESSION_BASE_DATE_INPUT_KEY = "base_date_input"
 
 
+def _set_today_base_date(latest_business_day):
+    st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
+
+
 class PageLoadingOverlay:
     def __init__(self, message: str = "페이지를 불러오고 있습니다...", progress: int = 10):
         self.placeholder = st.empty()
@@ -155,9 +159,12 @@ def render_query_sidebar() -> None:
         with today_col:
             st.write("")
             st.write("")
-            if st.button("Today", use_container_width=True):
-                st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
-                st.rerun()
+            st.button(
+                "Today",
+                use_container_width=True,
+                on_click=_set_today_base_date,
+                args=(latest_business_day,),
+            )
         market_label = st.selectbox("시장", list(MARKET_OPTIONS.keys()), index=0)
         top_n = st.slider("대상 종목 수", min_value=30, max_value=300, value=DEFAULT_TOP_N, step=10)
         query_button = st.button("조회", type="primary", use_container_width=True)
