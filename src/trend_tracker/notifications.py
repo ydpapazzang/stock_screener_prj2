@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas as pd
 import requests
 
-from .config import get_telegram_bot_token, get_telegram_chat_id
+from .config import get_public_app_url, get_telegram_bot_token, get_telegram_chat_id
 from .formatting import format_number
 
 
@@ -26,7 +26,18 @@ def build_telegram_message(results_df: pd.DataFrame, base_date: str, market: str
             lines.append(f"  한달 거래량: {format_number(row['한달간 거래량'])}")
             lines.append(f"  백테스트: {row['백테스팅 결과']}")
 
+    app_url = get_public_app_url().strip()
+    if app_url:
+        lines.extend(["", f"스크리너 바로가기: {app_url}"])
+
     return "\n".join(lines)
+
+
+def build_app_link_message() -> str:
+    app_url = get_public_app_url().strip()
+    if not app_url:
+        return "스크리너 URL이 설정되어 있지 않습니다."
+    return f"[스크리너 바로가기]\n{app_url}"
 
 
 def send_telegram_message(message: str) -> tuple[bool, str]:

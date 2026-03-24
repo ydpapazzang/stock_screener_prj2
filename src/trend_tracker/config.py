@@ -9,6 +9,7 @@ BACKTEST_LOOKBACK_DAYS = 7000
 MA_WINDOW = 10
 BACKTEST_BAR_LIMIT = 200
 MAX_ANALYSIS_WORKERS = 12
+DEFAULT_PUBLIC_APP_URL = "https://stockscreenerprj2-zcmcytyti5uvk4shz8ovzu.streamlit.app"
 
 MARKET_OPTIONS = {
     "KOSPI": "KOSPI",
@@ -87,3 +88,7 @@ def get_telegram_bot_token() -> str:
 
 def is_telegram_configured() -> bool:
     return bool(get_telegram_chat_id() and get_telegram_bot_token())
+
+
+def get_public_app_url() -> str:
+    return get_secret("APP_PUBLIC_URL", DEFAULT_PUBLIC_APP_URL)

@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.trend_tracker.analysis import analyze_market, get_last_data_error, get_latest_business_day
 from src.trend_tracker.config import ALERT_MARKETS, DEFAULT_TOP_N
 from src.trend_tracker.formatting import format_number
-from src.trend_tracker.notifications import send_telegram_message
+from src.trend_tracker.notifications import build_app_link_message, send_telegram_message
 
 
 SEOUL_TZ = ZoneInfo("Asia/Seoul")
@@ -168,6 +168,7 @@ def main() -> int:
 
     messages = [build_summary_message(base_date, section_results)]
     messages.extend(result["message"] for result in section_results)
+    messages.append(build_app_link_message())
 
     for message in messages:
         print(message)
