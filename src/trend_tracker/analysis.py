@@ -60,16 +60,20 @@ def get_latest_business_day() -> str:
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
+    fdr_pool = _get_market_cap_pool_from_fdr(market, top_n)
+    if not fdr_pool.empty:
+        return fdr_pool
+
     try:
         market_cap = stock.get_market_cap_by_ticker(base_date, market=market)
     except Exception as exc:
-        LAST_DATA_ERROR = f"pykrx 시가총액 조회 실패: {exc}"
-        return _get_market_cap_pool_from_fdr(market, top_n)
+        LAST_DATA_ERROR = f"FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회도 실패: {exc}"
+        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     required_columns = {"시가총액"}
     if market_cap.empty or not required_columns.issubset(set(market_cap.columns)):
-        LAST_DATA_ERROR = "pykrx 시가총액 조회 응답에 필요한 컬럼이 없습니다."
-        return _get_market_cap_pool_from_fdr(market, top_n)
+        LAST_DATA_ERROR = "FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회 응답에도 필요한 컬럼이 없습니다."
+        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     market_cap = market_cap.reset_index()
     if "티커" not in market_cap.columns:
@@ -85,21 +89,26 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
     fdr = _load_fdr()
     if fdr is None:
+        LAST_DATA_ERROR = "FinanceDataReader가 설치되어 있지 않습니다."
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     try:
-        listing = fdr.StockListing("KRX")
+        listing = fdr.StockListing("KRX-MARCAP")
     except Exception as exc:
-        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR 종목목록 조회 실패: {exc}" if LAST_DATA_ERROR else f"FDR 종목목록 조회 실패: {exc}"
-        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+        LAST_DATA_ERROR = f"FDR KRX-MARCAP 조회 실패: {exc}"
+        try:
+            listing = fdr.StockListing("KRX")
+        except Exception as inner_exc:
+            LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR KRX 조회 실패: {inner_exc}"
+            return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     market_column = "Market" if "Market" in listing.columns else None
-    marcap_column = "Marcap" if "Marcap" in listing.columns else None
+    marcap_column = "Marcap" if "Marcap" in listing.columns else "시가총액" if "시가총액" in listing.columns else None
     code_column = "Code" if "Code" in listing.columns else None
     name_column = "Name" if "Name" in listing.columns else None
 
     if not all([market_column, marcap_column, code_column, name_column]):
-        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR 종목목록 컬럼 부족" if LAST_DATA_ERROR else "FDR 종목목록 컬럼 부족"
+        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR 종목목록 컬럼 부족: {list(listing.columns)}" if LAST_DATA_ERROR else f"FDR 종목목록 컬럼 부족: {list(listing.columns)}"
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
     filtered = listing[listing[market_column].astype(str).str.upper() == market.upper()].copy()

@@ -347,6 +347,7 @@ def render_settings_page() -> None:
         [
             {"항목": "대상 시장", "값": ", ".join(MARKET_OPTIONS.keys())},
             {"항목": "기본 조회 종목 수", "값": DEFAULT_TOP_N},
+            {"항목": "시총 풀 우선 데이터 소스", "값": "FinanceDataReader -> pykrx fallback"},
             {"항목": "텔레그램 설정 여부", "값": "설정됨" if is_telegram_configured() else "미설정"},
             {"항목": "텔레그램 Chat ID", "값": get_telegram_chat_id() or "(미설정)"},
             {"항목": "텔레그램 Bot Token", "값": _mask_token(get_telegram_bot_token())},
