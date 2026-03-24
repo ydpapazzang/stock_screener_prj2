@@ -19,6 +19,40 @@ MARKET_OPTIONS = {
 }
 
 
+DOW_COMPONENTS = [
+    ("MMM", "3M"),
+    ("AXP", "American Express"),
+    ("AMGN", "Amgen"),
+    ("AMZN", "Amazon"),
+    ("AAPL", "Apple"),
+    ("BA", "Boeing"),
+    ("CAT", "Caterpillar"),
+    ("CVX", "Chevron"),
+    ("CSCO", "Cisco"),
+    ("KO", "Coca-Cola"),
+    ("DIS", "Disney"),
+    ("GS", "Goldman Sachs"),
+    ("HD", "Home Depot"),
+    ("HON", "Honeywell"),
+    ("IBM", "IBM"),
+    ("JNJ", "Johnson & Johnson"),
+    ("JPM", "JPMorgan Chase"),
+    ("MCD", "McDonald's"),
+    ("MRK", "Merck"),
+    ("MSFT", "Microsoft"),
+    ("NKE", "Nike"),
+    ("PG", "Procter & Gamble"),
+    ("CRM", "Salesforce"),
+    ("SHW", "Sherwin-Williams"),
+    ("TRV", "Travelers"),
+    ("UNH", "UnitedHealth"),
+    ("VZ", "Verizon"),
+    ("V", "Visa"),
+    ("WMT", "Walmart"),
+    ("NVDA", "NVIDIA"),
+]
+
+
 def get_secret(name: str, default: str = "") -> str:
     env_value = os.getenv(name)
     if env_value:

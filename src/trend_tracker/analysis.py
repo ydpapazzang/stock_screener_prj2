@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from pykrx import stock
 
-from .config import BACKTEST_BAR_LIMIT, BACKTEST_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS, MA_WINDOW, MAX_ANALYSIS_WORKERS
+from .config import BACKTEST_BAR_LIMIT, BACKTEST_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS, DOW_COMPONENTS, MA_WINDOW, MAX_ANALYSIS_WORKERS
 from .formatting import format_percent, to_krx_date
 
 LAST_DATA_ERROR: str | None = None
@@ -132,6 +132,16 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
 
 def _get_global_market_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
+    if market == "DOW":
+        return pd.DataFrame(
+            {
+                "티커": [symbol for symbol, _ in DOW_COMPONENTS[:top_n]],
+                "종목명": [name for _, name in DOW_COMPONENTS[:top_n]],
+                "시장": ["DOW"] * min(top_n, len(DOW_COMPONENTS)),
+                "시가총액": [0] * min(top_n, len(DOW_COMPONENTS)),
+            }
+        )
+
     fdr = _load_fdr()
     if fdr is None:
         LAST_DATA_ERROR = "FinanceDataReader가 설치되어 있지 않습니다."
@@ -140,7 +150,6 @@ def _get_global_market_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
     source_map = {
         "NASDAQ": "NASDAQ",
         "S&P500": "S&P500",
-        "DOW": "DOW",
     }
     source = source_map[market]
 
