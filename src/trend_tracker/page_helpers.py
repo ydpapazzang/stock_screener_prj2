@@ -7,7 +7,7 @@ import streamlit as st
 
 from .analysis import analyze_market, apply_result_filters, enrich_results_with_backtests, get_last_data_diagnostics, get_last_data_error, get_latest_business_day
 from .charts import create_monthly_chart
-from .config import DEFAULT_TOP_N, MARKET_OPTIONS
+from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_chat_id
 from .formatting import format_number, format_percent, to_krx_date
 from .notifications import build_telegram_message, send_telegram_message
 
