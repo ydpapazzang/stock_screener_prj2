@@ -5,3 +5,4 @@ pykrx>=1.2.4
 requests
 setuptools
 finance-datareader
+holidays

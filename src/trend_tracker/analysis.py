@@ -32,9 +32,24 @@ class AnalysisResult:
     months_since_breakout: int | None
     backtest_summary: str
     backtest_return_pct: float | None
+    backtest_mdd_pct: float | None
+    backtest_cagr_pct: float | None
+    average_hold_months: float | None
     trade_count: int
     win_rate_pct: float | None
     market_cap: int
+
+
+@dataclass
+class BacktestMetrics:
+    summary: str
+    cumulative_return_pct: float | None
+    mdd_pct: float | None
+    cagr_pct: float | None
+    trade_count: int
+    win_rate_pct: float | None
+    average_hold_months: float | None
+    trade_log: list[dict[str, object]]
 
 
 def _load_fdr():
@@ -379,24 +394,39 @@ def find_latest_breakout(monthly_df: pd.DataFrame) -> tuple[pd.Timestamp | None,
     return latest_breakout_date, months_since_breakout
 
 
-def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> tuple[str, float | None, int, float | None]:
+def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> BacktestMetrics:
     backtest_df = monthly_df.tail(limit).copy()
     if len(backtest_df) < 2:
-        return "데이터 부족", None, 0, None
+        return BacktestMetrics(
+            summary="데이터 부족",
+            cumulative_return_pct=None,
+            mdd_pct=None,
+            cagr_pct=None,
+            trade_count=0,
+            win_rate_pct=None,
+            average_hold_months=None,
+            trade_log=[],
+        )
 
     in_position = False
     entry_price = 0.0
+    entry_date = None
     equity = 1.0
     wins = 0
     trades = 0
+    hold_months_total = 0
+    trade_log: list[dict[str, object]] = []
+    equity_curve: list[float] = [1.0]
 
     for row in backtest_df.itertuples():
         close = float(row.close)
         ma10 = float(row.ma10)
+        row_date = pd.Timestamp(row.Index)
 
         if not in_position and close > ma10:
             in_position = True
             entry_price = close
+            entry_date = row_date
             continue
 
         if in_position and close < ma10:
@@ -405,22 +435,70 @@ def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> t
             trades += 1
             if trade_return > 0:
                 wins += 1
+            hold_months = ((row_date.year - entry_date.year) * 12 + (row_date.month - entry_date.month) + 1) if entry_date is not None else 0
+            hold_months_total += hold_months
+            trade_log.append(
+                {
+                    "진입월": entry_date.strftime("%Y-%m") if entry_date is not None else "-",
+                    "청산월": row_date.strftime("%Y-%m"),
+                    "진입가": entry_price,
+                    "청산가": close,
+                    "수익률": trade_return * 100,
+                    "보유개월": hold_months,
+                }
+            )
+            equity_curve.append(equity)
             in_position = False
+            entry_date = None
 
     if in_position:
         last_close = float(backtest_df.iloc[-1]["close"])
+        last_date = pd.Timestamp(backtest_df.index[-1])
         trade_return = (last_close / entry_price) - 1
         equity *= 1 + trade_return
         trades += 1
         if trade_return > 0:
             wins += 1
+        hold_months = ((last_date.year - entry_date.year) * 12 + (last_date.month - entry_date.month) + 1) if entry_date is not None else 0
+        hold_months_total += hold_months
+        trade_log.append(
+            {
+                "진입월": entry_date.strftime("%Y-%m") if entry_date is not None else "-",
+                "청산월": f"{last_date.strftime('%Y-%m')} (보유중)",
+                "진입가": entry_price,
+                "청산가": last_close,
+                "수익률": trade_return * 100,
+                "보유개월": hold_months,
+            }
+        )
+        equity_curve.append(equity)
 
     cumulative_return_pct = (equity - 1) * 100
     win_rate_pct = (wins / trades * 100) if trades else None
+    average_hold_months = (hold_months_total / trades) if trades else None
+    years = max(len(backtest_df) / 12, 1 / 12)
+    cagr_pct = (((equity ** (1 / years)) - 1) * 100) if equity > 0 else None
+    equity_series = pd.Series(equity_curve, dtype="float64")
+    running_max = equity_series.cummax()
+    drawdowns = (equity_series / running_max) - 1
+    mdd_pct = abs(drawdowns.min()) * 100 if not drawdowns.empty else None
+
     summary = f"누적 {format_percent(cumulative_return_pct)}, 매매 {trades}회"
     if win_rate_pct is not None:
         summary += f", 승률 {format_percent(win_rate_pct)}"
-    return summary, cumulative_return_pct, trades, win_rate_pct
+    if mdd_pct is not None:
+        summary += f", MDD {format_percent(-mdd_pct)}"
+
+    return BacktestMetrics(
+        summary=summary,
+        cumulative_return_pct=cumulative_return_pct,
+        mdd_pct=mdd_pct,
+        cagr_pct=cagr_pct,
+        trade_count=trades,
+        win_rate_pct=win_rate_pct,
+        average_hold_months=average_hold_months,
+        trade_log=trade_log,
+    )
 
 
 def enrich_results_with_backtests(
