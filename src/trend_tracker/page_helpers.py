@@ -689,6 +689,7 @@ def render_settings_page() -> None:
             {"항목": "시총 풀 우선 데이터 소스", "값": "FinanceDataReader -> pykrx fallback"},
         ]
     )
+    config_df = config_df.astype(str)
     st.dataframe(config_df, use_container_width=True, hide_index=True)
 
     st.markdown("**운영 메모**")
@@ -769,6 +770,7 @@ def render_data_source_diagnostics() -> None:
             source_df = pd.DataFrame(
                 [{"소스": key, "건수": value} for key, value in ohlcv_sources.items()]
             )
+            source_df = source_df.astype({"소스": "string", "건수": "string"})
             st.markdown("**가격 데이터 사용 분포**")
             st.dataframe(source_df, use_container_width=True, hide_index=True)
 
