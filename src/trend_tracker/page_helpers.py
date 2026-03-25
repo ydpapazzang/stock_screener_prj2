@@ -32,6 +32,23 @@ def _set_today_base_date(latest_business_day) -> None:
     st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
 
 
+def _run_default_screening_query() -> None:
+    latest_business_day = datetime.strptime(get_latest_business_day(), "%Y%m%d").date()
+    market_label = next(iter(MARKET_OPTIONS.keys()))
+    results_df, monthly_frames = analyze_market(
+        base_date=to_krx_date(latest_business_day),
+        market=MARKET_OPTIONS[market_label],
+        top_n=DEFAULT_TOP_N,
+    )
+    st.session_state[SESSION_RESULTS_KEY] = results_df
+    st.session_state[SESSION_FRAMES_KEY] = monthly_frames
+    st.session_state[SESSION_MARKET_KEY] = market_label
+    st.session_state[SESSION_DATE_KEY] = to_krx_date(latest_business_day)
+    st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
+    st.session_state["last_data_error"] = get_last_data_error()
+    st.session_state[SESSION_DATA_DIAGNOSTICS_KEY] = get_last_data_diagnostics()
+
+
 class PageLoadingOverlay:
     def __init__(self, message: str = "페이지를 불러오고 있습니다...", progress: int = 10):
         self.placeholder = st.empty()
@@ -260,6 +277,10 @@ def render_data_source_badges() -> None:
 def render_empty_state(results_df: pd.DataFrame | None) -> bool:
     if results_df is None:
         st.info("왼쪽 사이드바에서 시장과 기준일을 고른 뒤 `조회` 버튼을 눌러주세요.")
+        if st.button("기본값으로 바로 조회", type="primary", use_container_width=True):
+            with st.spinner("기본값으로 스크리닝을 조회하고 있습니다..."):
+                _run_default_screening_query()
+            st.rerun()
         return True
     if results_df.empty:
         st.warning("조회 결과가 없습니다. 기준일자나 시장을 바꿔 다시 시도해주세요.")

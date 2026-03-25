@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.trend_tracker.page_helpers import show_page_loading_bar
+from src.trend_tracker.page_helpers import get_session_results, render_market_dashboard, show_page_loading_bar
 
 
 st.set_page_config(page_title="10개월선 추세 트래커", layout="wide")
@@ -28,6 +28,19 @@ st.markdown(
     - `Settings`: 운영 기준, 데이터 소스 진단, 배포 메모 확인
     """
 )
+
+action_col1, action_col2, action_col3 = st.columns(3)
+action_col1.page_link("pages/1_Screening.py", label="스크리닝 바로가기", icon="📈")
+action_col2.page_link("pages/2_Backtest.py", label="백테스트 바로가기", icon="🧪")
+action_col3.page_link("pages/3_Settings.py", label="설정 바로가기", icon="⚙️")
+
+st.markdown("---")
+results_df, monthly_frames, _, _ = get_session_results()
+if results_df is not None and not results_df.empty:
+    render_market_dashboard(results_df, monthly_frames)
+else:
+    st.subheader("시장 공포탐욕 지수")
+    st.info("먼저 `Screening`에서 한 번 조회하면, 홈 화면에도 시장 공포탐욕 지수와 시장 온도계가 표시됩니다.")
 
 st.info("실행은 `streamlit run app.py`로 할 수 있습니다.")
 
