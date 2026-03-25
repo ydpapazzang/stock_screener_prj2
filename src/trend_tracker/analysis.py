@@ -165,7 +165,7 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
     code_column = "Code" if "Code" in listing.columns else None
     name_column = "Name" if "Name" in listing.columns else None
 
-    if not all([market_column, marcap_column, code_column, name_column]):
+    if not all([market_column, code_column, name_column]):
         LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / FDR 종목목록 컬럼 부족: {list(listing.columns)}" if LAST_DATA_ERROR else f"FDR 종목목록 컬럼 부족: {list(listing.columns)}"
         _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
@@ -174,14 +174,22 @@ def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
     if filtered.empty:
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
-    filtered = filtered.sort_values(marcap_column, ascending=False).head(top_n)
-    _set_pool_source("FinanceDataReader")
+    if marcap_column:
+        filtered = filtered.sort_values(marcap_column, ascending=False).head(top_n)
+        market_caps = filtered[marcap_column].fillna(0).astype("int64")
+        _set_pool_source("FinanceDataReader")
+    else:
+        filtered = filtered.head(top_n)
+        market_caps = pd.Series([0] * len(filtered), index=filtered.index, dtype="int64")
+        _set_pool_source("FinanceDataReader (listing only)")
+        _add_pool_fallback("KRX listing without market cap column")
+
     return pd.DataFrame(
         {
             "티커": filtered[code_column].astype(str).str.zfill(6),
             "종목명": filtered[name_column],
             "시장": market,
-            "시가총액": filtered[marcap_column].fillna(0).astype("int64"),
+            "시가총액": market_caps,
         }
     )
 
