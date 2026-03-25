@@ -119,6 +119,9 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
     except Exception as exc:
         LAST_DATA_ERROR = f"FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회도 실패: {exc}"
         _add_pool_fallback("FinanceDataReader -> pykrx")
+        ticker_pool = _get_ticker_pool_from_pykrx(base_date, market, top_n)
+        if not ticker_pool.empty:
+            return ticker_pool
         _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
@@ -126,6 +129,9 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
     if market_cap.empty or not required_columns.issubset(set(market_cap.columns)):
         LAST_DATA_ERROR = "FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회 응답에도 필요한 컬럼이 없습니다."
         _add_pool_fallback("FinanceDataReader -> pykrx")
+        ticker_pool = _get_ticker_pool_from_pykrx(base_date, market, top_n)
+        if not ticker_pool.empty:
+            return ticker_pool
         _add_error(LAST_DATA_ERROR)
         return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
@@ -139,6 +145,34 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
     _set_pool_source("pykrx")
     _add_pool_fallback("FinanceDataReader -> pykrx")
     return market_cap[["티커", "종목명", "시장", "시가총액"]]
+
+
+def _get_ticker_pool_from_pykrx(base_date: str, market: str, top_n: int) -> pd.DataFrame:
+    global LAST_DATA_ERROR
+    try:
+        tickers = stock.get_market_ticker_list(date=base_date, market=market)
+    except Exception as exc:
+        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / pykrx 티커 목록 조회도 실패: {exc}" if LAST_DATA_ERROR else f"pykrx 티커 목록 조회도 실패: {exc}"
+        _add_error(LAST_DATA_ERROR)
+        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+
+    if not tickers:
+        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / pykrx 티커 목록이 비어 있습니다." if LAST_DATA_ERROR else "pykrx 티커 목록이 비어 있습니다."
+        _add_error(LAST_DATA_ERROR)
+        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+
+    selected_tickers = list(tickers)[:top_n]
+    pool_df = pd.DataFrame(
+        {
+            "티커": selected_tickers,
+            "종목명": [stock.get_market_ticker_name(ticker) for ticker in selected_tickers],
+            "시장": market,
+            "시가총액": [0] * len(selected_tickers),
+        }
+    )
+    _set_pool_source("pykrx ticker list")
+    _add_pool_fallback("pykrx ticker list without market cap")
+    return pool_df
 
 
 def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:

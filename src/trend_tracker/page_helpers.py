@@ -44,7 +44,6 @@ def _run_default_screening_query() -> None:
     st.session_state[SESSION_FRAMES_KEY] = monthly_frames
     st.session_state[SESSION_MARKET_KEY] = market_label
     st.session_state[SESSION_DATE_KEY] = to_krx_date(latest_business_day)
-    st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
     st.session_state["last_data_error"] = get_last_data_error()
     st.session_state[SESSION_DATA_DIAGNOSTICS_KEY] = get_last_data_diagnostics()
 
