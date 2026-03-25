@@ -8,7 +8,14 @@ import pandas as pd
 import streamlit as st
 from pykrx import stock
 
-from .config import BACKTEST_BAR_LIMIT, BACKTEST_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS, DOW_COMPONENTS, MA_WINDOW, MAX_ANALYSIS_WORKERS
+from .config import (
+    BACKTEST_BAR_LIMIT,
+    BACKTEST_LOOKBACK_DAYS,
+    DEFAULT_LOOKBACK_DAYS,
+    DOW_COMPONENTS,
+    MA_WINDOW,
+    MAX_ANALYSIS_WORKERS,
+)
 from .formatting import format_percent, to_krx_date
 
 LAST_DATA_ERROR: str | None = None

@@ -10,6 +10,7 @@ MA_WINDOW = 10
 BACKTEST_BAR_LIMIT = 200
 MAX_ANALYSIS_WORKERS = 12
 DEFAULT_PUBLIC_APP_URL = "https://stockscreenerprj2-zcmcytyti5uvk4shz8ovzu.streamlit.app"
+DEFAULT_KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"
 
 MARKET_OPTIONS = {
     "KOSPI": "KOSPI",
@@ -92,3 +93,19 @@ def is_telegram_configured() -> bool:
 
 def get_public_app_url() -> str:
     return get_secret("APP_PUBLIC_URL", DEFAULT_PUBLIC_APP_URL)
+
+
+def get_kis_app_key() -> str:
+    return get_secret("KIS_APP_KEY")
+
+
+def get_kis_app_secret() -> str:
+    return get_secret("KIS_APP_SECRET")
+
+
+def get_kis_base_url() -> str:
+    return get_secret("KIS_BASE_URL", DEFAULT_KIS_BASE_URL)
+
+
+def is_kis_configured() -> bool:
+    return bool(get_kis_app_key() and get_kis_app_secret())
