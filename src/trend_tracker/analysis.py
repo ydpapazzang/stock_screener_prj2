@@ -149,12 +149,18 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
 
 def _get_ticker_pool_from_pykrx(base_date: str, market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
-    try:
-        tickers = stock.get_market_ticker_list(date=base_date, market=market)
-    except Exception as exc:
-        LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / pykrx 티커 목록 조회도 실패: {exc}" if LAST_DATA_ERROR else f"pykrx 티커 목록 조회도 실패: {exc}"
-        _add_error(LAST_DATA_ERROR)
-        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+    base_dt = datetime.strptime(base_date, "%Y%m%d").date()
+    tickers: list[str] = []
+
+    for offset in range(15):
+        current_date = to_krx_date(base_dt - timedelta(days=offset))
+        try:
+            tickers = stock.get_market_ticker_list(date=current_date, market=market)
+        except Exception as exc:
+            LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / pykrx 티커 목록 조회도 실패: {exc}" if LAST_DATA_ERROR else f"pykrx 티커 목록 조회도 실패: {exc}"
+            continue
+        if tickers:
+            break
 
     if not tickers:
         LAST_DATA_ERROR = f"{LAST_DATA_ERROR} / pykrx 티커 목록이 비어 있습니다." if LAST_DATA_ERROR else "pykrx 티커 목록이 비어 있습니다."
