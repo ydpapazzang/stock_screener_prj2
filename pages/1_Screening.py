@@ -5,6 +5,7 @@ from src.trend_tracker.page_helpers import (
     render_detail,
     render_empty_state,
     render_filter_controls,
+    render_market_dashboard,
     render_query_sidebar,
     render_screening_table,
     render_summary_metrics,
@@ -27,6 +28,7 @@ page_loader.update("조회 결과를 구성하고 있습니다...", 70)
 results_df, monthly_frames, screen_market, screen_base_date = get_session_results()
 
 if not render_empty_state(results_df):
+    render_market_dashboard(results_df, monthly_frames)
     render_summary_metrics(results_df)
     filtered_df = render_filter_controls(results_df, default_sort_by="돌파경과개월", key_prefix="screening")
     render_screening_table(filtered_df, results_df)

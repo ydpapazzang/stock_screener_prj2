@@ -9,6 +9,7 @@ from .analysis import (
     analyze_market,
     apply_result_filters,
     enrich_results_with_backtests,
+    evaluate_signal,
     get_last_data_diagnostics,
     get_last_data_error,
     get_latest_business_day,
@@ -281,6 +282,111 @@ def render_summary_metrics(results_df: pd.DataFrame) -> None:
     col2.metric("상단 유지", hold_count)
     col3.metric("하단 위치", below_count)
     col4.metric("이탈", exit_count)
+
+
+def _compute_market_dashboard(results_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFrame]) -> dict[str, object]:
+    total = len(results_df)
+    if total == 0:
+        return {
+            "above_ratio": 0.0,
+            "breakout_ratio": 0.0,
+            "exit_count": 0,
+            "exit_delta": 0,
+            "fear_greed_score": 0,
+            "fear_greed_label": "데이터 없음",
+            "market_label": "판단 불가",
+        }
+
+    above_count = int(results_df["현재상태"].isin(["돌파", "상단 유지"]).sum())
+    breakout_count = int((results_df["월봉10개월선돌파여부"] == "예").sum())
+    exit_count = int((results_df["현재상태"] == "이탈").sum())
+
+    previous_exit_count = 0
+    for monthly_df in monthly_frames.values():
+        if monthly_df is None or len(monthly_df) < 3:
+            continue
+        _, previous_signal = evaluate_signal(monthly_df.iloc[:-1])
+        if previous_signal == "이탈":
+            previous_exit_count += 1
+
+    exit_delta = exit_count - previous_exit_count
+    above_ratio = above_count / total * 100
+    breakout_ratio = breakout_count / total * 100
+    exit_ratio = exit_count / total * 100
+
+    score = 50
+    score += (above_ratio - 50) * 0.6
+    score += breakout_ratio * 0.8
+    score -= exit_ratio * 0.7
+    score = int(max(0, min(100, round(score))))
+
+    if score >= 80:
+        fear_greed_label = "극단적 탐욕"
+    elif score >= 60:
+        fear_greed_label = "탐욕"
+    elif score >= 40:
+        fear_greed_label = "중립"
+    elif score >= 20:
+        fear_greed_label = "공포"
+    else:
+        fear_greed_label = "극단적 공포"
+
+    if above_ratio >= 65:
+        market_label = "강세 우위"
+    elif above_ratio >= 45:
+        market_label = "중립"
+    else:
+        market_label = "약세 우위"
+
+    return {
+        "above_ratio": above_ratio,
+        "breakout_ratio": breakout_ratio,
+        "exit_count": exit_count,
+        "exit_delta": exit_delta,
+        "fear_greed_score": score,
+        "fear_greed_label": fear_greed_label,
+        "market_label": market_label,
+    }
+
+
+def render_market_dashboard(results_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFrame]) -> None:
+    dashboard = _compute_market_dashboard(results_df, monthly_frames)
+
+    st.subheader("시장 온도계")
+    st.caption("현재 조회된 시장 전체를 기준으로 10개월선 강도와 내부 심리를 요약합니다.")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("시장 상태", dashboard["market_label"], f"상단 비율 {dashboard['above_ratio']:.1f}%")
+    col2.metric("돌파 종목 비율", f"{dashboard['breakout_ratio']:.1f}%")
+    col3.metric("이탈 종목 수", dashboard["exit_count"], f"{dashboard['exit_delta']:+d} vs 전월")
+    col4.metric("공포탐욕 지수", f"{dashboard['fear_greed_score']}", dashboard["fear_greed_label"])
+
+    score = dashboard["fear_greed_score"]
+    if score >= 80:
+        gauge_color = "#b91c1c"
+    elif score >= 60:
+        gauge_color = "#ea580c"
+    elif score >= 40:
+        gauge_color = "#2563eb"
+    elif score >= 20:
+        gauge_color = "#0891b2"
+    else:
+        gauge_color = "#1d4ed8"
+
+    st.markdown(
+        f"""
+        <div style="margin: 8px 0 18px 0; padding: 14px 16px; border: 1px solid rgba(148,163,184,0.25); border-radius: 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong>시장 공포탐욕 지수</strong>
+                <span style="font-weight:700; color:{gauge_color};">{score} / 100 · {dashboard['fear_greed_label']}</span>
+            </div>
+            <div style="height:12px; background:rgba(148,163,184,0.18); border-radius:999px; overflow:hidden;">
+                <div style="width:{score}%; height:100%; background:{gauge_color};"></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_filter_controls(
