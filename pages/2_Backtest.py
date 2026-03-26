@@ -40,12 +40,7 @@ if not render_empty_state(results_df):
     filtered_df = render_filter_controls(results_df, default_sort_by="돌파경과개월", key_prefix="backtest")
     updated_results_df = run_manual_backtest_for_filtered(filtered_df, monthly_frames, screen_base_date)
     if updated_results_df is not None:
-        results_df = updated_results_df
-        filtered_df = render_filter_controls(
-            results_df,
-            default_sort_by="백테스트 수익률",
-            key_prefix="backtest_after_run",
-        )
+        st.rerun()
     render_backtest_table(filtered_df, results_df)
     render_detail(filtered_df, monthly_frames)
 

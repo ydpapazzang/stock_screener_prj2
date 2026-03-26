@@ -141,14 +141,13 @@ def render_execution_rule_badge() -> None:
                 color: #7dd3fc;
                 font-size: 12px;
                 letter-spacing: 0.02em;">EXECUTION RULE</span>
-            <span>?? ?? ??</span>
+            <span>Month-end close confirmed</span>
             <span style="opacity:0.7;">-&gt;</span>
-            <span>?? ?? ??</span>
+            <span>Next-month open fill</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
 
 def _show_loading_modal(message: str = "데이터를 조회하고 있습니다...") -> st.delta_generator.DeltaGenerator:
     placeholder = st.empty()
