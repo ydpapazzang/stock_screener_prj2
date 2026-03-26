@@ -140,10 +140,10 @@ def render_execution_rule_badge() -> None:
                 background: rgba(14, 165, 233, 0.18);
                 color: #7dd3fc;
                 font-size: 12px;
-                letter-spacing: 0.02em;">EXECUTION RULE</span>
-            <span>Month-end close confirmed</span>
+                letter-spacing: 0.02em;">매매 기준</span>
+            <span>당월 종가 확정</span>
             <span style="opacity:0.7;">-&gt;</span>
-            <span>Next-month open fill</span>
+            <span>익월 시가 체결</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -269,7 +269,7 @@ def _build_source_badges_html() -> str:
     if not diagnostics:
         return ""
 
-    pool_source = diagnostics.get("pool_source") or "unknown"
+    pool_source = diagnostics.get("pool_source") or "미확인"
     pool_fallbacks = diagnostics.get("pool_fallbacks") or []
     ohlcv_sources = diagnostics.get("ohlcv_sources") or {}
 
@@ -791,12 +791,23 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
         st.dataframe(history_df, use_container_width=True, hide_index=True)
 
     with tab_trades:
-        trade_logs = selected_row["????"] if "????" in selected_row.index else []
+        trade_logs = selected_row["매매로그"] if "매매로그" in selected_row.index else []
         if isinstance(trade_logs, list) and trade_logs:
             trade_log_df = pd.DataFrame(trade_logs)
-            entry_price_col = "???" if "???" in trade_log_df.columns else "entry_price" if "entry_price" in trade_log_df.columns else None
-            exit_price_col = "???" if "???" in trade_log_df.columns else "exit_price" if "exit_price" in trade_log_df.columns else None
-            return_col = "???" if "???" in trade_log_df.columns else "return_pct" if "return_pct" in trade_log_df.columns else None
+            trade_log_df = trade_log_df.rename(
+                columns={
+                    "entry_date": "진입일",
+                    "exit_date": "청산일",
+                    "entry_price": "진입가",
+                    "exit_price": "청산가",
+                    "return_pct": "수익률",
+                    "hold_months": "보유개월",
+                    "signal_rule": "신호기준",
+                }
+            )
+            entry_price_col = "진입가" if "진입가" in trade_log_df.columns else None
+            exit_price_col = "청산가" if "청산가" in trade_log_df.columns else None
+            return_col = "수익률" if "수익률" in trade_log_df.columns else None
             if entry_price_col:
                 trade_log_df[entry_price_col] = trade_log_df[entry_price_col].map(format_number)
             if exit_price_col:
@@ -805,7 +816,7 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
                 trade_log_df[return_col] = trade_log_df[return_col].map(format_percent)
             st.dataframe(trade_log_df, use_container_width=True, hide_index=True)
         else:
-            st.info("?? ??? ?? ??? ????. Backtest ????? ????? ??? ???.")
+            st.info("아직 기록된 매매 로그가 없습니다. 백테스트 실행 후 이력에서 확인할 수 있습니다.")
 
 
 def render_settings_page() -> None:
@@ -868,26 +879,26 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
 def _build_trade_log_csv(filtered_df: pd.DataFrame) -> str | None:
     rows: list[dict[str, object]] = []
-    if "????" not in filtered_df.columns:
+    if "매매로그" not in filtered_df.columns:
         return None
 
     for _, row in filtered_df.iterrows():
-        trade_logs = row.get("????", [])
+        trade_logs = row.get("매매로그", [])
         if not isinstance(trade_logs, list) or not trade_logs:
             continue
         for trade in trade_logs:
             rows.append(
                 {
-                    "??": row.get("??"),
-                    "???": row.get("???"),
-                    "????": row.get("????"),
-                    "???": trade.get("???", trade.get("entry_date")),
-                    "???": trade.get("???", trade.get("exit_date")),
-                    "???": trade.get("???", trade.get("entry_price")),
-                    "???": trade.get("???", trade.get("exit_price")),
-                    "???": trade.get("???", trade.get("return_pct")),
-                    "????": trade.get("????", trade.get("hold_months")),
-                    "????": trade.get("????", trade.get("signal_rule")),
+                    "시장": row.get("시장"),
+                    "종목명": row.get("종목명"),
+                    "종목코드": row.get("종목코드"),
+                    "진입일": trade.get("진입일", trade.get("entry_date")),
+                    "청산일": trade.get("청산일", trade.get("exit_date")),
+                    "진입가": trade.get("진입가", trade.get("entry_price")),
+                    "청산가": trade.get("청산가", trade.get("exit_price")),
+                    "수익률": trade.get("수익률", trade.get("return_pct")),
+                    "보유개월": trade.get("보유개월", trade.get("hold_months")),
+                    "신호기준": trade.get("신호기준", trade.get("signal_rule")),
                 }
             )
 
