@@ -15,11 +15,14 @@ from .config import (
     DOW_COMPONENTS,
     MA_WINDOW,
     MAX_ANALYSIS_WORKERS,
+    is_kis_configured,
 )
 from .formatting import format_percent, to_krx_date
+from .providers import KISMarketDataProvider
 
 LAST_DATA_ERROR: str | None = None
 LAST_DATA_DIAGNOSTICS: dict[str, object] = {}
+KIS_PROVIDER = KISMarketDataProvider()
 
 
 @dataclass
@@ -65,6 +68,12 @@ def _load_fdr():
     except ImportError:
         return None
     return fdr
+
+
+def _get_kis_provider() -> KISMarketDataProvider | None:
+    if not is_kis_configured():
+        return None
+    return KIS_PROVIDER
 
 
 def _reset_diagnostics() -> None:
@@ -113,6 +122,19 @@ def get_latest_business_day() -> str:
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
+    kis_provider = _get_kis_provider()
+    if kis_provider is not None:
+        try:
+            kis_pool = kis_provider.get_universe(market=market, top_n=top_n, base_date=base_date)
+        except Exception as exc:
+            LAST_DATA_ERROR = f"KIS universe 조회 실패: {exc}"
+            _add_pool_fallback("KIS universe -> legacy providers")
+            _add_error(LAST_DATA_ERROR)
+        else:
+            if not kis_pool.empty:
+                _set_pool_source("KIS Open API universe")
+                return kis_pool
+
     if market in {"NASDAQ", "S&P500", "DOW"}:
         return _get_global_market_pool_from_fdr(market, top_n)
 
@@ -329,6 +351,21 @@ def _normalize_daily_ohlcv(daily_df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
 def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str, market: str) -> tuple[pd.DataFrame, str]:
     global LAST_DATA_ERROR
+    kis_provider = _get_kis_provider()
+    if kis_provider is not None:
+        try:
+            kis_daily_df = kis_provider.get_daily_ohlcv(
+                ticker=ticker,
+                market=market,
+                start_date=start_date,
+                end_date=base_date,
+            )
+        except Exception as exc:
+            LAST_DATA_ERROR = f"KIS OHLCV 조회 실패({ticker}): {exc}"
+        else:
+            if not kis_daily_df.empty:
+                return kis_daily_df, "KIS Open API"
+
     fdr = _load_fdr()
 
     if fdr is not None:

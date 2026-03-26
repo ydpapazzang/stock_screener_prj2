@@ -236,7 +236,7 @@ def _build_source_badges_html() -> str:
     badges = []
     badges.append(("종목풀", str(pool_source), "#0f766e"))
     for source_name, count in ohlcv_sources.items():
-        color = "#1d4ed8" if "FinanceDataReader" in source_name else "#7c3aed" if "pykrx" in source_name else "#475569"
+        color = "#0f766e" if "KIS" in source_name else "#1d4ed8" if "FinanceDataReader" in source_name else "#7c3aed" if "pykrx" in source_name else "#475569"
         badges.append(("가격", f"{source_name} {count}건", color))
     if pool_fallbacks:
         badges.append(("fallback", "적용됨", "#b45309"))
