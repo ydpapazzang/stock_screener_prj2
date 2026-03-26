@@ -350,6 +350,14 @@ def _normalize_daily_ohlcv(daily_df: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def _has_enough_history_for_monthly_signal(daily_df: pd.DataFrame) -> bool:
+    if daily_df.empty:
+        return False
+    monthly_count = daily_df.resample("M").size()
+    return len(monthly_count) >= MA_WINDOW + 1
+
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
 def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str, market: str) -> tuple[pd.DataFrame, str]:
     global LAST_DATA_ERROR
     kis_provider = _get_kis_provider()
@@ -364,8 +372,10 @@ def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str, market: str) 
         except Exception as exc:
             LAST_DATA_ERROR = f"KIS OHLCV 조회 실패({ticker}): {exc}"
         else:
-            if not kis_daily_df.empty:
+            if not kis_daily_df.empty and _has_enough_history_for_monthly_signal(kis_daily_df):
                 return kis_daily_df, "KIS Open API"
+            if not kis_daily_df.empty:
+                _add_pool_fallback(f"KIS OHLCV history too short -> fallback ({ticker})")
 
     fdr = _load_fdr()
 
