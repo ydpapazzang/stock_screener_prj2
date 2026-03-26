@@ -34,7 +34,7 @@ st.markdown(
     - `Weekly Screening`: 주봉 밀집·돌파·거래량 조건 검색
     """
 )
-render_execution_rule_badge()
+render_execution_rule_badge("month")
 
 action_col1, action_col2 = st.columns(2)
 action_col1.page_link("pages/1_Month_Screening.py", label="월봉 조회 바로가기")

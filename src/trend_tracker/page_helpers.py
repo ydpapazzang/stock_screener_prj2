@@ -132,9 +132,16 @@ def show_page_loading_bar(message: str = "페이지를 불러오고 있습니다
     return PageLoadingOverlay(message=message, progress=progress)
 
 
-def render_execution_rule_badge() -> None:
+def render_execution_rule_badge(timeframe: str = "month") -> None:
+    if timeframe == "week":
+        confirm_text = "당주 종가 확정"
+        fill_text = "익주 시가 체결"
+    else:
+        confirm_text = "당월 종가 확정"
+        fill_text = "익월 시가 체결"
+
     st.markdown(
-        """
+        f"""
         <div style="
             margin: 8px 0 18px 0;
             padding: 12px 14px;
@@ -153,9 +160,9 @@ def render_execution_rule_badge() -> None:
                 color: #7dd3fc;
                 font-size: 12px;
                 letter-spacing: 0.02em;">매매 기준</span>
-            <span>당월 종가 확정</span>
+            <span>{confirm_text}</span>
             <span style="opacity:0.7;">-&gt;</span>
-            <span>익월 시가 체결</span>
+            <span>{fill_text}</span>
         </div>
         """,
         unsafe_allow_html=True,
