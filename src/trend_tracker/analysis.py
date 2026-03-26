@@ -236,8 +236,18 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
             _add_error(LAST_DATA_ERROR)
         else:
             if not kis_pool.empty:
-                _set_pool_source("KIS Open API universe")
-                return kis_pool
+                if market in {"KOSPI", "KOSDAQ"} and len(kis_pool) < top_n:
+                    LAST_DATA_ERROR = (
+                        f"KIS universe 종목 수가 요청값보다 적습니다. "
+                        f"requested={top_n}, received={len(kis_pool)}"
+                    )
+                    _add_pool_fallback(
+                        f"KIS universe size {len(kis_pool)} < requested {top_n} -> legacy providers"
+                    )
+                    _add_error(LAST_DATA_ERROR)
+                else:
+                    _set_pool_source("KIS Open API universe")
+                    return kis_pool
 
     if market in {"NASDAQ", "S&P500", "DOW"}:
         return _get_global_market_pool_from_fdr(market, top_n)
