@@ -20,6 +20,7 @@ class KISClient:
             "appkey": get_kis_app_key(),
             "appsecret": get_kis_app_secret(),
             "tr_id": tr_id,
+            "custtype": "P",
         }
         response = requests.get(
             f"{self.base_url}/{path.lstrip('/')}",
@@ -28,4 +29,10 @@ class KISClient:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        rt_cd = str(payload.get("rt_cd", "0"))
+        if rt_cd not in {"0", ""}:
+            msg_cd = payload.get("msg_cd", "")
+            msg1 = payload.get("msg1", "KIS API request failed")
+            raise RuntimeError(f"{msg_cd} {msg1}".strip())
+        return payload
