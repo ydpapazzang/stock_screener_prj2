@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.trend_tracker.page_helpers import (
     ensure_default_screening_results,
+    render_cnn_fear_greed_card,
     render_market_dashboard,
     render_market_index_overview,
     show_page_loading_bar,
@@ -43,6 +44,7 @@ st.markdown("---")
 results_df, monthly_frames, _, _ = ensure_default_screening_results()
 if results_df is not None and not results_df.empty:
     render_market_dashboard(results_df, monthly_frames)
+render_cnn_fear_greed_card()
 render_market_index_overview()
 
 page_loader.update("메인 화면 표시를 마무리하고 있습니다...", 100)

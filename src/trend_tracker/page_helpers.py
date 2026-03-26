@@ -10,6 +10,7 @@ from .analysis import (
     apply_result_filters,
     enrich_results_with_backtests,
     evaluate_signal,
+    get_cnn_fear_greed_snapshot,
     get_last_data_diagnostics,
     get_last_data_error,
     get_latest_business_day,
@@ -430,6 +431,46 @@ def render_market_index_overview() -> None:
         value = format_number(snapshot["value"], digits=2)
         delta = format_percent(snapshot["change_pct"])
         column.metric(snapshot["label"], value, delta)
+
+
+def render_cnn_fear_greed_card() -> None:
+    snapshot = get_cnn_fear_greed_snapshot()
+    if not snapshot:
+        return
+
+    score = float(snapshot["score"])
+    previous_close = snapshot.get("previous_close")
+    delta = score - float(previous_close) if previous_close is not None else None
+
+    if score >= 75:
+        color = "#b91c1c"
+    elif score >= 55:
+        color = "#ea580c"
+    elif score >= 45:
+        color = "#475569"
+    elif score >= 25:
+        color = "#2563eb"
+    else:
+        color = "#be123c"
+
+    timestamp = str(snapshot.get("timestamp") or "").strip()
+    caption = f"CNN Fear & Greed Index | {timestamp}" if timestamp else "CNN Fear & Greed Index"
+
+    st.subheader("CNN 공포탐욕지수")
+    metric_col, text_col = st.columns([1, 2])
+    metric_col.metric("CNN Score", f"{score:.0f}", None if delta is None else f"{delta:+.0f} vs prev")
+    text_col.markdown(
+        f"""
+        <div style="margin-top: 8px; padding: 16px; border-radius: 14px; border: 1px solid rgba(148,163,184,0.25);">
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">{caption}</div>
+            <div style="font-size: 20px; font-weight: 700; color: {color}; margin-bottom: 10px;">{snapshot['rating']}</div>
+            <div style="height: 12px; background: rgba(148,163,184,0.18); border-radius: 999px; overflow: hidden;">
+                <div style="width: {score}%; height: 100%; background: {color};"></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_filter_controls(

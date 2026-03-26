@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import pandas as pd
+import requests
 import streamlit as st
 import holidays
 from pykrx import stock
@@ -69,6 +70,44 @@ def _load_fdr():
     except ImportError:
         return None
     return fdr
+
+
+@st.cache_data(ttl=60 * 30, show_spinner=False)
+def get_cnn_fear_greed_snapshot() -> dict[str, object] | None:
+    headers = {
+        "user-agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    try:
+        response = requests.get(
+            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+
+    fear_greed = payload.get("fear_and_greed") or {}
+    score = fear_greed.get("score")
+    rating = fear_greed.get("rating")
+    timestamp = fear_greed.get("timestamp")
+    previous_close = fear_greed.get("previous_close")
+
+    if score is None:
+        return None
+
+    return {
+        "score": float(score),
+        "rating": str(rating) if rating is not None else "",
+        "timestamp": str(timestamp) if timestamp is not None else "",
+        "previous_close": float(previous_close) if previous_close is not None else None,
+        "source": "CNN Fear & Greed Index",
+    }
 
 
 @st.cache_data(ttl=60 * 30, show_spinner=False)
