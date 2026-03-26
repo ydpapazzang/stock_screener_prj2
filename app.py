@@ -17,32 +17,28 @@ from src.trend_tracker.page_helpers import (
 )
 
 
-st.set_page_config(page_title="10개월선 추세 트래커", layout="wide")
+st.set_page_config(page_title="woni 추세 트래커", layout="wide")
 page_loader = show_page_loading_bar("앱을 불러오고 있습니다...", progress=20)
 
-st.title("10개월선 추세 트래커")
-st.caption("왼쪽 메뉴에서 Screening, Backtest, Settings 페이지로 이동할 수 있습니다.")
+st.title("woni 추세 트래커")
+st.caption("왼쪽 메뉴에서 Month Screening, Weekly Screening 페이지로 이동할 수 있습니다.")
 
 page_loader.update("메인 화면을 준비하고 있습니다...", 70)
 
 st.markdown(
     """
-    이 앱은 월봉 10개월선 기준 스크리닝과 백테스트,
-    그리고 주봉 10·20·40주선 돌파 조건 검색 흐름으로 구성되어 있습니다.
+    이 앱은 월봉 10개월선 기준 스크리닝과
+    주봉 10·20·40주선 돌파 조건 검색 흐름으로 구성되어 있습니다.
 
-    - `Screening`: 빠른 후보 조회와 필터링
-    - `Backtest`: 현재 후보 종목 기준 수동 백테스트
+    - `Month Screening`: 월봉 기준 빠른 후보 조회와 필터링
     - `Weekly Screening`: 주봉 밀집·돌파·거래량 조건 검색
-    - `Settings`: 운영 정보와 데이터 소스 진단 확인
     """
 )
 render_execution_rule_badge()
 
-action_col1, action_col2, action_col3, action_col4 = st.columns(4)
-action_col1.page_link("pages/1_Screening.py", label="스크리닝 바로가기")
-action_col2.page_link("pages/2_Backtest.py", label="백테스트 바로가기")
-action_col3.page_link("pages/4_Weekly_Screening.py", label="주봉 조회 바로가기")
-action_col4.page_link("pages/3_Settings.py", label="설정 바로가기")
+action_col1, action_col2 = st.columns(2)
+action_col1.page_link("pages/1_Month_Screening.py", label="월봉 조회 바로가기")
+action_col2.page_link("pages/4_Weekly_Screening.py", label="주봉 조회 바로가기")
 
 st.markdown("---")
 results_df, monthly_frames, _, _ = ensure_default_screening_results()

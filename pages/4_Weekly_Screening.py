@@ -40,12 +40,13 @@ page_loader.update("주봉 조회 설정을 준비하고 있습니다...", 35)
 helpers.render_weekly_query_sidebar()
 
 page_loader.update("주봉 조건 결과를 구성하고 있습니다...", 70)
-results_df, weekly_frames, _, _ = helpers.get_weekly_session_results()
+results_df, weekly_frames, screen_market, screen_base_date = helpers.get_weekly_session_results()
 
 if not helpers.render_weekly_empty_state(results_df):
     helpers.render_weekly_summary_metrics(results_df)
     filtered_df = helpers.render_weekly_filter_controls(results_df)
     helpers.render_weekly_screening_table(filtered_df, results_df)
+    helpers.render_weekly_telegram_panel(filtered_df, results_df, screen_base_date, screen_market)
     helpers.render_weekly_detail(filtered_df, weekly_frames)
 
 page_loader.update("주봉 조회 페이지 표시를 마무리하고 있습니다...", 100)

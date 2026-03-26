@@ -20,7 +20,7 @@ from .analysis import (
 from .charts import create_monthly_chart, create_weekly_chart
 from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_chat_id
 from .formatting import format_number, format_percent, to_krx_date
-from .notifications import build_telegram_message, send_telegram_message
+from .notifications import build_telegram_message, build_weekly_telegram_message, send_telegram_message
 
 
 SESSION_RESULTS_KEY = "results_df"
@@ -609,7 +609,7 @@ def render_filter_controls(
         name_query = st.text_input("종목명/코드 검색", value="", key=f"{key_prefix}_name_query")
 
     sort_col1, sort_col2, sort_col3 = st.columns([1, 1, 1])
-    sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증감률", "현재가", "전월거래량", "시가총액", "종목명"]
+    sort_options = ["돌파경과개월", "거래량 증감률", "현재가", "전월거래량", "시가총액", "종목명"]
     default_index = sort_options.index(default_sort_by) if default_sort_by in sort_options else 0
     with sort_col1:
         sort_by = st.selectbox("정렬 기준", sort_options, index=default_index, key=f"{key_prefix}_sort_by")
@@ -624,16 +624,8 @@ def render_filter_controls(
             key=f"{key_prefix}_breakout_within_months",
         )
 
-    advanced_col1, advanced_col2 = st.columns([1, 1])
-    with advanced_col1:
+    with st.container():
         volume_up_only = st.checkbox("거래량 증가 종목만", value=False, key=f"{key_prefix}_volume_up_only")
-    with advanced_col2:
-        min_backtest_return = st.number_input(
-            "백테스트 수익률 최소값(%)",
-            value=0.0,
-            step=5.0,
-            key=f"{key_prefix}_min_backtest_return",
-        )
 
     trend_col1, trend_col2 = st.columns([1, 1])
     with trend_col1:
@@ -648,7 +640,7 @@ def render_filter_controls(
         ma10_rising_only=ma10_rising_only,
         dual_trend_only=dual_trend_only,
         volume_up_only=volume_up_only,
-        min_backtest_return=min_backtest_return,
+        min_backtest_return=0.0,
         breakout_within_months=breakout_within_months,
         sort_by=sort_by,
         ascending=sort_direction == "오름차순",
@@ -932,6 +924,31 @@ def render_telegram_panel(filtered_df: pd.DataFrame, results_df: pd.DataFrame, s
                 st.error(message)
 
 
+def render_weekly_telegram_panel(filtered_df: pd.DataFrame, results_df: pd.DataFrame, screen_base_date: str, screen_market: str) -> None:
+    telegram_source_df = filtered_df if not filtered_df.empty else results_df[results_df["최종조건충족"].astype(str) == "예"]
+    telegram_message = build_weekly_telegram_message(telegram_source_df, screen_base_date, screen_market)
+    is_configured = bool(get_telegram_chat_id())
+
+    tab_preview, tab_send = st.tabs(["미리보기", "수동 전송"])
+    with tab_preview:
+        st.subheader("주봉 텔레그램 알림 미리보기")
+        st.code(telegram_message, language="text")
+
+    with tab_send:
+        if is_configured:
+            st.caption("텔레그램 수동 전송이 설정되어 있습니다.")
+        else:
+            st.caption("텔레그램 시크릿이 없어서 수동 전송은 동작하지 않습니다.")
+
+        if st.button("주봉 텔레그램 알림 전송", use_container_width=True, key="weekly_telegram_send_button"):
+            with st.spinner("텔레그램으로 전송하는 중입니다..."):
+                success, message = send_telegram_message(telegram_message)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+
+
 def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFrame]) -> None:
     if filtered_df.empty:
         return
@@ -941,21 +958,12 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
     selected_row = filtered_df[filtered_df["종목명"] == selected_name].iloc[0]
     selected_monthly = monthly_frames[selected_row["종목코드"]]
 
-    info1, info2, info3, info4 = st.columns(4)
+    info1, info2, info3 = st.columns(3)
     info1.metric("현재 상태", str(selected_row["현재상태"]))
     info2.metric("현재가", f"{format_number(selected_row['현재가'])}원")
     info3.metric("10개월선", f"{format_number(selected_row['10개월선'])}원")
-    info4.metric("백테스트 수익률", format_percent(selected_row["백테스트 수익률"]))
 
-    backtest_col1, backtest_col2, backtest_col3 = st.columns(3)
-    backtest_col1.metric("MDD", format_percent(selected_row["MDD"]))
-    backtest_col2.metric("CAGR", format_percent(selected_row["CAGR"]))
-    backtest_col3.metric(
-        "평균 보유개월",
-        "미계산" if pd.isna(selected_row["평균보유개월"]) else f"{selected_row['평균보유개월']:.1f}개월",
-    )
-
-    tab_chart, tab_history, tab_trades = st.tabs(["차트", "월별 데이터", "매매 로그"])
+    tab_chart, tab_history = st.tabs(["차트", "월별 데이터"])
 
     with tab_chart:
         st.plotly_chart(create_monthly_chart(selected_monthly, selected_name), use_container_width=True)
@@ -980,35 +988,6 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
         history_df["거래량 증감률"] = history_df["거래량 증감률"].map(format_percent)
         history_df["월간 수익률"] = history_df["월간 수익률"].map(format_percent)
         st.dataframe(history_df, use_container_width=True, hide_index=True)
-
-    with tab_trades:
-        trade_logs = selected_row["매매로그"] if "매매로그" in selected_row.index else []
-        if isinstance(trade_logs, list) and trade_logs:
-            trade_log_df = pd.DataFrame(trade_logs)
-            trade_log_df = trade_log_df.rename(
-                columns={
-                    "entry_date": "진입일",
-                    "exit_date": "청산일",
-                    "entry_price": "진입가",
-                    "exit_price": "청산가",
-                    "return_pct": "수익률",
-                    "hold_months": "보유개월",
-                    "signal_rule": "신호기준",
-                }
-            )
-            entry_price_col = "진입가" if "진입가" in trade_log_df.columns else None
-            exit_price_col = "청산가" if "청산가" in trade_log_df.columns else None
-            return_col = "수익률" if "수익률" in trade_log_df.columns else None
-            if entry_price_col:
-                trade_log_df[entry_price_col] = trade_log_df[entry_price_col].map(format_number)
-            if exit_price_col:
-                trade_log_df[exit_price_col] = trade_log_df[exit_price_col].map(format_number)
-            if return_col:
-                trade_log_df[return_col] = trade_log_df[return_col].map(format_percent)
-            st.dataframe(trade_log_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("아직 기록된 매매 로그가 없습니다. 백테스트 실행 후 이력에서 확인할 수 있습니다.")
-
 
 def render_weekly_detail(filtered_df: pd.DataFrame, weekly_frames: dict[str, pd.DataFrame]) -> None:
     if filtered_df.empty:
@@ -1070,7 +1049,6 @@ def render_settings_page() -> None:
             {"항목": "대상 시장", "값": ", ".join(MARKET_OPTIONS.keys())},
             {"항목": "기본 조회 종목 수", "값": DEFAULT_TOP_N},
             {"항목": "스크리닝 목적", "값": "빠른 돌파 후보 탐색"},
-            {"항목": "백테스트 목적", "값": "수동 실행 기반 성과 검증"},
             {"항목": "시총 풀 우선 데이터 소스", "값": "FinanceDataReader -> pykrx fallback"},
         ]
     )

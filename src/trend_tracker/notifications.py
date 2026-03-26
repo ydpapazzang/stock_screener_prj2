@@ -10,11 +10,12 @@ from .formatting import format_number
 
 
 def build_telegram_message(results_df: pd.DataFrame, base_date: str, market: str) -> str:
-    label_date = datetime.strptime(base_date, "%Y%m%d").strftime("%Y년 %m월")
-    breakouts = results_df[results_df["월봉10개월선돌파여부"] == "예"].head(10)
+    label_date = datetime.strptime(base_date, "%Y%m%d").strftime("%Y년 %m월 %d일") if base_date else "-"
+    market = market or "-"
+    breakouts = results_df[results_df["월봉10개월선돌파여부"].astype(str) == "예"].head(10)
 
-    lines = [f"[{label_date} 말일 {market} 10개월선 스크리닝]", ""]
-    lines.append("● 월봉 10개월선 돌파 종목")
+    lines = [f"[{label_date} 마감 {market} 월봉 스크리닝]", ""]
+    lines.append("월봉 10개월선 돌파 종목")
 
     if breakouts.empty:
         lines.append("- 이번 조회에서는 돌파 종목이 없습니다.")
@@ -23,8 +24,34 @@ def build_telegram_message(results_df: pd.DataFrame, base_date: str, market: str
             lines.append(f"- {row['종목명']} ({row['종목코드']})")
             lines.append(f"  현재가: {format_number(row['현재가'])}원")
             lines.append(f"  10개월선: {format_number(row['10개월선'])}원")
-            lines.append(f"  한달 거래량: {format_number(row['한달간 거래량'])}")
-            lines.append(f"  백테스트: {row['백테스팅 결과']}")
+            lines.append(f"  한달간 거래량: {format_number(row['한달간 거래량'])}")
+
+    app_url = get_public_app_url().strip()
+    if app_url:
+        lines.extend(["", f"스크리너 바로가기: {app_url}"])
+
+    return "\n".join(lines)
+
+
+def build_weekly_telegram_message(results_df: pd.DataFrame, base_date: str, market: str) -> str:
+    label_date = datetime.strptime(base_date, "%Y%m%d").strftime("%Y년 %m월 %d일") if base_date else "-"
+    market = market or "-"
+    setups = results_df[results_df["최종조건충족"].astype(str) == "예"].head(10)
+
+    lines = [f"[{label_date} 기준 {market} 주봉 조건 검색]", ""]
+    lines.append("10·20·40주선 밀집 + 20·40주 돌파 + 거래량 급증 종목")
+
+    if setups.empty:
+        lines.append("- 이번 조회에서는 최종 조건 충족 종목이 없습니다.")
+    else:
+        for _, row in setups.iterrows():
+            lines.append(f"- {row['종목명']} ({row['종목코드']})")
+            lines.append(f"  현재가: {format_number(row['현재가'])}원")
+            lines.append(f"  10주선/20주선/40주선: {format_number(row['10주선'])} / {format_number(row['20주선'])} / {format_number(row['40주선'])}")
+            spread_text = "미계산" if pd.isna(row["이평선이격률"]) else f"{float(row['이평선이격률']):.2f}%"
+            volume_text = "미계산" if pd.isna(row["거래량배수"]) else f"{float(row['거래량배수']):.2f}배"
+            lines.append(f"  이평선 이격률: {spread_text}")
+            lines.append(f"  거래량 배수: {volume_text}")
 
     app_url = get_public_app_url().strip()
     if app_url:
