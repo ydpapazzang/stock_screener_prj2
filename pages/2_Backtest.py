@@ -24,8 +24,9 @@ st.set_page_config(page_title="Backtest", layout="wide")
 page_loader = show_page_loading_bar("백테스트 페이지를 불러오고 있습니다...", progress=15)
 
 st.title("백테스트")
-st.caption("현재 필터된 종목만 골라 200봉 기준 MA10 전략 성과를 계산합니다.")
-st.info("이 페이지는 수동 검증용입니다. 먼저 `조회`로 후보를 만들고, 그다음 백테스트를 실행해주세요.")
+st.caption("현재 필터 대상 종목으로 월봉 MA10 전략 성과를 계산합니다.")
+st.info("이 페이지는 수동 검증용입니다. 먼저 조회로 후보를 만든 뒤 백테스트를 실행해 주세요.")
+st.caption("백테스트 기준: 당월 종가 신호 확인 후 익월 시가에 진입/청산합니다.")
 
 page_loader.update("백테스트 설정을 준비하고 있습니다...", 35)
 render_query_sidebar()

@@ -67,8 +67,7 @@ def _empty_universe() -> pd.DataFrame:
 
 
 def _empty_ohlcv() -> pd.DataFrame:
-    return pd.DataFrame(columns=["종가", "거래량"])
-
+    return pd.DataFrame(columns=["open", "close", "volume"])
 
 @dataclass(frozen=True)
 class OverseasMarketMap:
@@ -220,12 +219,13 @@ class KISMarketDataProvider(MarketDataProvider):
             return _empty_ohlcv()
 
         rows["date"] = pd.to_datetime(
-            rows.apply(
-                lambda row: _pick_first(row, "stck_bsop_date", "xymd", "bas_dt"),
-                axis=1,
-            ),
+            rows.apply(lambda row: _pick_first(row, "stck_bsop_date", "xymd", "bas_dt"), axis=1),
             format="%Y%m%d",
             errors="coerce",
+        )
+        rows["open"] = rows.apply(
+            lambda row: _to_float(_pick_first(row, "stck_oprc", "open", "oprc")),
+            axis=1,
         )
         rows["close"] = rows.apply(
             lambda row: _to_float(_pick_first(row, "stck_clpr", "ovrs_nmix_prpr", "clos", "last")),
@@ -235,12 +235,12 @@ class KISMarketDataProvider(MarketDataProvider):
             lambda row: _to_float(_pick_first(row, "acml_vol", "tvol", "vol")),
             axis=1,
         )
-        normalized = rows.dropna(subset=["date", "close"]).copy()
+        normalized = rows.dropna(subset=["date", "open", "close"]).copy()
         if normalized.empty:
             return _empty_ohlcv()
 
         normalized = normalized.sort_values("date").set_index("date")
-        return normalized[["close", "volume"]].rename(columns={"close": "종가", "volume": "거래량"})
+        return normalized[["open", "close", "volume"]].rename(columns={"open": "open", "close": "close", "volume": "volume"})
 
     def _get_overseas_daily_ohlcv(self, ticker: str, market: str) -> pd.DataFrame:
         market_meta = OVERSEAS_MARKET_MAP[market]
@@ -267,6 +267,10 @@ class KISMarketDataProvider(MarketDataProvider):
             format="%Y%m%d",
             errors="coerce",
         )
+        rows["open"] = rows.apply(
+            lambda row: _to_float(_pick_first(row, "open", "oprc", "topen")),
+            axis=1,
+        )
         rows["close"] = rows.apply(
             lambda row: _to_float(_pick_first(row, "clos", "last", "ovrs_nmix_prpr")),
             axis=1,
@@ -275,12 +279,12 @@ class KISMarketDataProvider(MarketDataProvider):
             lambda row: _to_float(_pick_first(row, "tvol", "vol", "acml_vol")),
             axis=1,
         )
-        normalized = rows.dropna(subset=["date", "close"]).copy()
+        normalized = rows.dropna(subset=["date", "open", "close"]).copy()
         if normalized.empty:
             return _empty_ohlcv()
 
         normalized = normalized.sort_values("date").set_index("date")
-        return normalized[["close", "volume"]].rename(columns={"close": "종가", "volume": "거래량"})
+        return normalized[["open", "close", "volume"]].rename(columns={"open": "open", "close": "close", "volume": "volume"})
 
     def get_domestic_quote(self, ticker: str) -> dict[str, Any]:
         payload = self.client.get(

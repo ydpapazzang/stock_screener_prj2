@@ -762,15 +762,21 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
         st.dataframe(history_df, use_container_width=True, hide_index=True)
 
     with tab_trades:
-        trade_logs = selected_row["매매로그"] if "매매로그" in selected_row.index else []
+        trade_logs = selected_row["????"] if "????" in selected_row.index else []
         if isinstance(trade_logs, list) and trade_logs:
             trade_log_df = pd.DataFrame(trade_logs)
-            trade_log_df["진입가"] = trade_log_df["진입가"].map(format_number)
-            trade_log_df["청산가"] = trade_log_df["청산가"].map(format_number)
-            trade_log_df["수익률"] = trade_log_df["수익률"].map(format_percent)
+            entry_price_col = "???" if "???" in trade_log_df.columns else "entry_price" if "entry_price" in trade_log_df.columns else None
+            exit_price_col = "???" if "???" in trade_log_df.columns else "exit_price" if "exit_price" in trade_log_df.columns else None
+            return_col = "???" if "???" in trade_log_df.columns else "return_pct" if "return_pct" in trade_log_df.columns else None
+            if entry_price_col:
+                trade_log_df[entry_price_col] = trade_log_df[entry_price_col].map(format_number)
+            if exit_price_col:
+                trade_log_df[exit_price_col] = trade_log_df[exit_price_col].map(format_number)
+            if return_col:
+                trade_log_df[return_col] = trade_log_df[return_col].map(format_percent)
             st.dataframe(trade_log_df, use_container_width=True, hide_index=True)
         else:
-            st.info("아직 계산된 매매 로그가 없습니다. Backtest 페이지에서 백테스트를 실행해주세요.")
+            st.info("?? ??? ?? ??? ????. Backtest ????? ????? ??? ???.")
 
 
 def render_settings_page() -> None:
@@ -833,25 +839,26 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
 def _build_trade_log_csv(filtered_df: pd.DataFrame) -> str | None:
     rows: list[dict[str, object]] = []
-    if "매매로그" not in filtered_df.columns:
+    if "????" not in filtered_df.columns:
         return None
 
     for _, row in filtered_df.iterrows():
-        trade_logs = row.get("매매로그", [])
+        trade_logs = row.get("????", [])
         if not isinstance(trade_logs, list) or not trade_logs:
             continue
         for trade in trade_logs:
             rows.append(
                 {
-                    "시장": row.get("시장"),
-                    "종목명": row.get("종목명"),
-                    "종목코드": row.get("종목코드"),
-                    "진입월": trade.get("진입월"),
-                    "청산월": trade.get("청산월"),
-                    "진입가": trade.get("진입가"),
-                    "청산가": trade.get("청산가"),
-                    "수익률": trade.get("수익률"),
-                    "보유개월": trade.get("보유개월"),
+                    "??": row.get("??"),
+                    "???": row.get("???"),
+                    "????": row.get("????"),
+                    "???": trade.get("???", trade.get("entry_date")),
+                    "???": trade.get("???", trade.get("exit_date")),
+                    "???": trade.get("???", trade.get("entry_price")),
+                    "???": trade.get("???", trade.get("exit_price")),
+                    "???": trade.get("???", trade.get("return_pct")),
+                    "????": trade.get("????", trade.get("hold_months")),
+                    "????": trade.get("????", trade.get("signal_rule")),
                 }
             )
 

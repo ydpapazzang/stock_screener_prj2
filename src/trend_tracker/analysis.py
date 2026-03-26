@@ -414,21 +414,33 @@ def _normalize_daily_ohlcv(daily_df: pd.DataFrame) -> pd.DataFrame:
 
     df = daily_df.copy()
     column_map = {}
+    open_kr = "시가"
+    close_kr = "종가"
+    volume_kr = "거래량"
+
+    if "Open" in df.columns:
+        column_map["Open"] = "open"
     if "Close" in df.columns:
-        column_map["Close"] = "종가"
+        column_map["Close"] = "close"
     if "Volume" in df.columns:
-        column_map["Volume"] = "거래량"
+        column_map["Volume"] = "volume"
+    if open_kr in df.columns:
+        column_map[open_kr] = "open"
+    if close_kr in df.columns:
+        column_map[close_kr] = "close"
+    if volume_kr in df.columns:
+        column_map[volume_kr] = "volume"
     if column_map:
         df = df.rename(columns=column_map)
 
-    required = {"종가", "거래량"}
+    required = {"open", "close", "volume"}
     if not required.issubset(set(df.columns)):
-        return pd.DataFrame(columns=["종가", "거래량"])
+        return pd.DataFrame(columns=["open", "close", "volume"])
 
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
-    return df[["종가", "거래량"]].dropna()
+    return df[["open", "close", "volume"]].dropna()
 
 
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
@@ -475,7 +487,7 @@ def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str, market: str) 
     if market not in {"KOSPI", "KOSDAQ"}:
         if LAST_DATA_ERROR:
             _add_error(LAST_DATA_ERROR)
-        return pd.DataFrame(columns=["종가", "거래량"]), "none"
+        return pd.DataFrame(columns=["open", "close", "volume"]), "none"
 
     try:
         daily_df = stock.get_market_ohlcv_by_date(
@@ -491,7 +503,7 @@ def _get_daily_ohlcv(base_date: str, start_date: str, ticker: str, market: str) 
 
     if LAST_DATA_ERROR:
         _add_error(LAST_DATA_ERROR)
-    return pd.DataFrame(columns=["종가", "거래량"]), "none"
+    return pd.DataFrame(columns=["open", "close", "volume"]), "none"
 
 
 def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[AnalysisResult | None, pd.DataFrame | None, str]:
@@ -545,11 +557,10 @@ def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[Analy
 
 def build_monthly_frame(daily_df: pd.DataFrame) -> pd.DataFrame:
     monthly = (
-        daily_df[["종가", "거래량"]]
-        .rename(columns={"종가": "close", "거래량": "volume"})
+        daily_df[["open", "close", "volume"]]
         .resample("M")
-        .agg({"close": "last", "volume": "sum"})
-        .dropna(subset=["close"])
+        .agg({"open": "first", "close": "last", "volume": "sum"})
+        .dropna(subset=["open", "close"])
     )
     monthly["ma10"] = monthly["close"].rolling(MA_WINDOW).mean()
     monthly["ma20"] = monthly["close"].rolling(20).mean()
@@ -609,9 +620,9 @@ def find_latest_breakout(monthly_df: pd.DataFrame) -> tuple[pd.Timestamp | None,
 
 def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> BacktestMetrics:
     backtest_df = monthly_df.tail(limit).copy()
-    if len(backtest_df) < 2:
+    if len(backtest_df) < 3:
         return BacktestMetrics(
-            summary="데이터 부족",
+            summary="Data insufficient",
             cumulative_return_pct=None,
             mdd_pct=None,
             cagr_pct=None,
@@ -631,33 +642,39 @@ def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> B
     trade_log: list[dict[str, object]] = []
     equity_curve: list[float] = [1.0]
 
-    for row in backtest_df.itertuples():
-        close = float(row.close)
-        ma10 = float(row.ma10)
-        row_date = pd.Timestamp(row.Index)
+    for index in range(1, len(backtest_df) - 1):
+        signal_row = backtest_df.iloc[index]
+        next_row = backtest_df.iloc[index + 1]
+        signal_date = pd.Timestamp(backtest_df.index[index])
+        next_date = pd.Timestamp(backtest_df.index[index + 1])
+
+        close = float(signal_row["close"])
+        ma10 = float(signal_row["ma10"])
+        next_open = float(next_row["open"])
 
         if not in_position and close > ma10:
             in_position = True
-            entry_price = close
-            entry_date = row_date
+            entry_price = next_open
+            entry_date = next_date
             continue
 
         if in_position and close < ma10:
-            trade_return = (close / entry_price) - 1
+            trade_return = (next_open / entry_price) - 1
             equity *= 1 + trade_return
             trades += 1
             if trade_return > 0:
                 wins += 1
-            hold_months = ((row_date.year - entry_date.year) * 12 + (row_date.month - entry_date.month) + 1) if entry_date is not None else 0
+            hold_months = ((next_date.year - entry_date.year) * 12 + (next_date.month - entry_date.month) + 1) if entry_date is not None else 0
             hold_months_total += hold_months
             trade_log.append(
                 {
-                    "진입월": entry_date.strftime("%Y-%m") if entry_date is not None else "-",
-                    "청산월": row_date.strftime("%Y-%m"),
-                    "진입가": entry_price,
-                    "청산가": close,
-                    "수익률": trade_return * 100,
-                    "보유개월": hold_months,
+                    "entry_date": entry_date.strftime("%Y-%m") if entry_date is not None else "-",
+                    "exit_date": next_date.strftime("%Y-%m"),
+                    "entry_price": entry_price,
+                    "exit_price": next_open,
+                    "return_pct": trade_return * 100,
+                    "hold_months": hold_months,
+                    "signal_rule": f"{signal_date.strftime('%Y-%m')} month-end close confirmed -> next month open fill",
                 }
             )
             equity_curve.append(equity)
@@ -676,12 +693,13 @@ def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> B
         hold_months_total += hold_months
         trade_log.append(
             {
-                "진입월": entry_date.strftime("%Y-%m") if entry_date is not None else "-",
-                "청산월": f"{last_date.strftime('%Y-%m')} (보유중)",
-                "진입가": entry_price,
-                "청산가": last_close,
-                "수익률": trade_return * 100,
-                "보유개월": hold_months,
+                "entry_date": entry_date.strftime("%Y-%m") if entry_date is not None else "-",
+                "exit_date": f"{last_date.strftime('%Y-%m')} (open)",
+                "entry_price": entry_price,
+                "exit_price": last_close,
+                "return_pct": trade_return * 100,
+                "hold_months": hold_months,
+                "signal_rule": "Month-end signal confirmed, final bar marked to latest close",
             }
         )
         equity_curve.append(equity)
@@ -696,9 +714,9 @@ def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> B
     drawdowns = (equity_series / running_max) - 1
     mdd_pct = abs(drawdowns.min()) * 100 if not drawdowns.empty else None
 
-    summary = f"누적 {format_percent(cumulative_return_pct)}, 매매 {trades}회"
+    summary = f"Total {format_percent(cumulative_return_pct)}, Trades {trades}"
     if win_rate_pct is not None:
-        summary += f", 승률 {format_percent(win_rate_pct)}"
+        summary += f", Win {format_percent(win_rate_pct)}"
     if mdd_pct is not None:
         summary += f", MDD {format_percent(-mdd_pct)}"
 
