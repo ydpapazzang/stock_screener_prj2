@@ -70,6 +70,8 @@ class WeeklyAnalysisResult:
     volume_multiple: float | None
     dense_ready: bool
     breakout_ready: bool
+    trend_turn_ready: bool
+    not_extended_ready: bool
     volume_ready: bool
     setup_ready: bool
     signal_week: pd.Timestamp
@@ -672,16 +674,16 @@ def _evaluate_weekly_setup(
     weekly_df: pd.DataFrame,
     max_ma_spread_pct: float,
     min_volume_multiple: float,
-) -> tuple[bool, bool, bool, bool]:
+) -> tuple[bool, bool, bool, bool, bool, bool]:
     if len(weekly_df) < 2:
-        return False, False, False, False
+        return False, False, False, False, False, False
 
     current = weekly_df.iloc[-1]
     previous = weekly_df.iloc[-2]
-    previous_spread = previous.get("ma_spread_pct")
+    recent_spread = weekly_df["ma_spread_pct"].tail(3).min()
     volume_multiple = current.get("volume_multiple")
 
-    dense_ready = pd.notna(previous_spread) and float(previous_spread) <= float(max_ma_spread_pct)
+    dense_ready = pd.notna(recent_spread) and float(recent_spread) <= float(max_ma_spread_pct)
     breakout_ready = (
         pd.notna(current.get("ma20"))
         and pd.notna(current.get("ma40"))
@@ -689,12 +691,36 @@ def _evaluate_weekly_setup(
         and pd.notna(previous.get("ma40"))
         and float(current["close"]) > float(current["ma20"])
         and float(current["close"]) > float(current["ma40"])
-        and float(previous["close"]) <= float(previous["ma20"])
-        and float(previous["close"]) <= float(previous["ma40"])
+        and (
+            float(previous["close"]) <= float(previous["ma20"])
+            or float(previous["close"]) <= float(previous["ma40"])
+            or float(previous["ma10"]) <= float(previous["ma20"])
+        )
+    )
+    trend_turn_ready = (
+        pd.notna(current.get("ma10"))
+        and pd.notna(current.get("ma20"))
+        and pd.notna(previous.get("ma10"))
+        and pd.notna(previous.get("ma20"))
+        and float(current["ma10"]) > float(previous["ma10"])
+        and float(current["ma20"]) >= float(previous["ma20"]) * 0.995
+        and float(current["ma10"]) >= float(current["ma20"])
+    )
+    not_extended_ready = (
+        pd.notna(current.get("ma20"))
+        and pd.notna(current.get("ma40"))
+        and float(current["close"]) <= max(float(current["ma20"]), float(current["ma40"])) * 1.08
     )
     volume_ready = pd.notna(volume_multiple) and float(volume_multiple) >= float(min_volume_multiple)
-    setup_ready = bool(dense_ready and breakout_ready and volume_ready)
-    return bool(dense_ready), bool(breakout_ready), bool(volume_ready), setup_ready
+    setup_ready = bool(dense_ready and breakout_ready and trend_turn_ready and not_extended_ready and volume_ready)
+    return (
+        bool(dense_ready),
+        bool(breakout_ready),
+        bool(trend_turn_ready),
+        bool(not_extended_ready),
+        bool(volume_ready),
+        setup_ready,
+    )
 
 
 def _analyze_single_ticker_weekly(
@@ -718,7 +744,7 @@ def _analyze_single_ticker_weekly(
     if len(weekly_df) < 41:
         return None, None, source_used
 
-    dense_ready, breakout_ready, volume_ready, setup_ready = _evaluate_weekly_setup(
+    dense_ready, breakout_ready, trend_turn_ready, not_extended_ready, volume_ready, setup_ready = _evaluate_weekly_setup(
         weekly_df=weekly_df,
         max_ma_spread_pct=max_ma_spread_pct,
         min_volume_multiple=min_volume_multiple,
@@ -739,6 +765,8 @@ def _analyze_single_ticker_weekly(
         volume_multiple=float(current["volume_multiple"]) if pd.notna(current["volume_multiple"]) else None,
         dense_ready=dense_ready,
         breakout_ready=breakout_ready,
+        trend_turn_ready=trend_turn_ready,
+        not_extended_ready=not_extended_ready,
         volume_ready=volume_ready,
         setup_ready=setup_ready,
         signal_week=pd.Timestamp(weekly_df.index[-1]),
@@ -1053,6 +1081,8 @@ def analyze_weekly_market(
                 "이평선이격률": item.ma_spread_pct,
                 "밀집조건": "예" if item.dense_ready else "아니오",
                 "돌파조건": "예" if item.breakout_ready else "아니오",
+                "추세전환조건": "예" if item.trend_turn_ready else "아니오",
+                "과열아님조건": "예" if item.not_extended_ready else "아니오",
                 "거래량": item.weekly_volume,
                 "10주평균거래량": item.avg_volume_10,
                 "거래량배수": item.volume_multiple,
@@ -1070,7 +1100,7 @@ def analyze_weekly_market(
         return frame, weekly_frames
 
     setup_sort = pd.CategoricalDtype(["예", "아니오"], ordered=True)
-    for column in ["밀집조건", "돌파조건", "거래량조건", "최종조건충족"]:
+    for column in ["밀집조건", "돌파조건", "추세전환조건", "과열아님조건", "거래량조건", "최종조건충족"]:
         frame[column] = frame[column].astype(setup_sort)
     frame = frame.sort_values(
         ["최종조건충족", "거래량배수", "이평선이격률", "시가총액"],

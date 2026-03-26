@@ -711,14 +711,14 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
 def render_weekly_summary_metrics(results_df: pd.DataFrame) -> None:
     setup_count = int((results_df["최종조건충족"].astype(str) == "예").sum())
     dense_count = int((results_df["밀집조건"].astype(str) == "예").sum())
+    trend_turn_count = int((results_df["추세전환조건"].astype(str) == "예").sum())
     breakout_count = int((results_df["돌파조건"].astype(str) == "예").sum())
-    volume_count = int((results_df["거래량조건"].astype(str) == "예").sum())
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("최종 조건 충족", setup_count)
     col2.metric("이평선 밀집", dense_count)
-    col3.metric("20·40주 돌파", breakout_count)
-    col4.metric("거래량 급증", volume_count)
+    col3.metric("추세 전환", trend_turn_count)
+    col4.metric("20·40주 돌파", breakout_count)
 
 
 def render_weekly_filter_controls(results_df: pd.DataFrame) -> pd.DataFrame:
@@ -788,7 +788,9 @@ def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.Data
                 "이평선이격률",
                 "거래량배수",
                 "밀집조건",
+                "추세전환조건",
                 "돌파조건",
+                "과열아님조건",
                 "거래량조건",
                 "최종조건충족",
                 "기준주",
@@ -1013,8 +1015,12 @@ def render_weekly_detail(filtered_df: pd.DataFrame, weekly_frames: dict[str, pd.
 
     cond_col1, cond_col2, cond_col3 = st.columns(3)
     cond_col1.metric("밀집조건", str(selected_row["밀집조건"]))
-    cond_col2.metric("돌파조건", str(selected_row["돌파조건"]))
-    cond_col3.metric("거래량조건", str(selected_row["거래량조건"]))
+    cond_col2.metric("추세전환조건", str(selected_row["추세전환조건"]))
+    cond_col3.metric("돌파조건", str(selected_row["돌파조건"]))
+
+    cond_col4, cond_col5 = st.columns(2)
+    cond_col4.metric("과열아님조건", str(selected_row["과열아님조건"]))
+    cond_col5.metric("거래량조건", str(selected_row["거래량조건"]))
 
     tab_chart, tab_history = st.tabs(["차트", "주별 데이터"])
     with tab_chart:
