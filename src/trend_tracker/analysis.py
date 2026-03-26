@@ -71,6 +71,45 @@ def _load_fdr():
     return fdr
 
 
+@st.cache_data(ttl=60 * 30, show_spinner=False)
+def get_market_index_snapshots() -> list[dict[str, object]]:
+    fdr = _load_fdr()
+    if fdr is None:
+        return []
+
+    symbols = [
+        ("KOSPI", "KS11"),
+        ("KOSDAQ", "KQ11"),
+        ("NASDAQ", "IXIC"),
+        ("DOW", "DJI"),
+        ("S&P500", "US500"),
+    ]
+    end_date = datetime.now().date() + timedelta(days=1)
+    start_date = end_date - timedelta(days=14)
+    snapshots: list[dict[str, object]] = []
+
+    for label, symbol in symbols:
+        try:
+            frame = fdr.DataReader(symbol, start_date, end_date)
+        except Exception:
+            continue
+        normalized = _normalize_daily_ohlcv(frame)
+        if len(normalized) < 2:
+            continue
+        latest_close = float(normalized.iloc[-1]["醫낃?"])
+        previous_close = float(normalized.iloc[-2]["醫낃?"])
+        change_pct = ((latest_close / previous_close) - 1) * 100 if previous_close else None
+        snapshots.append(
+            {
+                "label": label,
+                "value": latest_close,
+                "change_pct": change_pct,
+            }
+        )
+
+    return snapshots
+
+
 def _get_kis_provider() -> KISMarketDataProvider | None:
     if not is_kis_configured():
         return None

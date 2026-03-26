@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 
-DEFAULT_TOP_N = 100
+DEFAULT_TOP_N = 200
 DEFAULT_LOOKBACK_DAYS = 900
 BACKTEST_LOOKBACK_DAYS = 7000
 MA_WINDOW = 10

@@ -13,6 +13,7 @@ from .analysis import (
     get_last_data_diagnostics,
     get_last_data_error,
     get_latest_business_day,
+    get_market_index_snapshots,
 )
 from .charts import create_monthly_chart
 from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_chat_id
@@ -224,6 +225,15 @@ def get_session_results() -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame],
     )
 
 
+def ensure_default_screening_results() -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame], str | None, str | None]:
+    results = get_session_results()
+    results_df, _, _, _ = results
+    if results_df is None or results_df.empty:
+        _run_default_screening_query()
+        results = get_session_results()
+    return results
+
+
 def _build_source_badges_html() -> str:
     diagnostics = st.session_state.get(SESSION_DATA_DIAGNOSTICS_KEY, {})
     if not diagnostics:
@@ -407,6 +417,19 @@ def render_market_dashboard(results_df: pd.DataFrame, monthly_frames: dict[str, 
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_market_index_overview() -> None:
+    index_snapshots = get_market_index_snapshots()
+    if not index_snapshots:
+        return
+
+    st.subheader("주요 지수")
+    index_columns = st.columns(len(index_snapshots))
+    for column, snapshot in zip(index_columns, index_snapshots):
+        value = format_number(snapshot["value"], digits=2)
+        delta = format_percent(snapshot["change_pct"])
+        column.metric(snapshot["label"], value, delta)
 
 
 def render_filter_controls(
