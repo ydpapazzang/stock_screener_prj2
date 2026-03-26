@@ -120,6 +120,36 @@ def show_page_loading_bar(message: str = "페이지를 불러오고 있습니다
     return PageLoadingOverlay(message=message, progress=progress)
 
 
+def render_execution_rule_badge() -> None:
+    st.markdown(
+        """
+        <div style="
+            margin: 8px 0 18px 0;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(14, 165, 233, 0.28);
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.14), rgba(59, 130, 246, 0.08));
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            color: #e0f2fe;">
+            <span style="
+                padding: 4px 10px;
+                border-radius: 999px;
+                background: rgba(14, 165, 233, 0.18);
+                color: #7dd3fc;
+                font-size: 12px;
+                letter-spacing: 0.02em;">EXECUTION RULE</span>
+            <span>?? ?? ??</span>
+            <span style="opacity:0.7;">-&gt;</span>
+            <span>?? ?? ??</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _show_loading_modal(message: str = "데이터를 조회하고 있습니다...") -> st.delta_generator.DeltaGenerator:
     placeholder = st.empty()
     placeholder.markdown(

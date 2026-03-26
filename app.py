@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.trend_tracker.page_helpers import (
     ensure_default_screening_results,
     render_cnn_fear_greed_card,
+    render_execution_rule_badge,
     render_market_dashboard,
     render_market_index_overview,
     show_page_loading_bar,
@@ -34,6 +35,7 @@ st.markdown(
     - `Settings`: 운영 정보와 데이터 소스 진단 확인
     """
 )
+render_execution_rule_badge()
 
 action_col1, action_col2, action_col3 = st.columns(3)
 action_col1.page_link("pages/1_Screening.py", label="스크리닝 바로가기")
