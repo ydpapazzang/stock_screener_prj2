@@ -1,0 +1,44 @@
+import sys
+from pathlib import Path
+
+import streamlit as st
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.trend_tracker.page_helpers import (
+    get_weekly_session_results,
+    render_execution_rule_badge,
+    render_weekly_detail,
+    render_weekly_empty_state,
+    render_weekly_filter_controls,
+    render_weekly_query_sidebar,
+    render_weekly_screening_table,
+    render_weekly_summary_metrics,
+    show_page_loading_bar,
+)
+
+
+st.set_page_config(page_title="Weekly Screening", layout="wide")
+page_loader = show_page_loading_bar("주봉 조회 페이지를 불러오고 있습니다...", progress=15)
+
+st.title("주봉 조회")
+st.caption("10주·20주·40주 이동평균선 밀집 후 20주·40주 상향 돌파와 거래량 급증이 동시에 나온 종목을 찾습니다.")
+st.info("기본 로직은 직전 주 이평선 밀집, 현재 주 20·40주선 종가 돌파, 최근 10주 평균 대비 거래량 급증의 교집합입니다.")
+render_execution_rule_badge()
+
+page_loader.update("주봉 조회 설정을 준비하고 있습니다...", 35)
+render_weekly_query_sidebar()
+
+page_loader.update("주봉 조건 결과를 구성하고 있습니다...", 70)
+results_df, weekly_frames, _, _ = get_weekly_session_results()
+
+if not render_weekly_empty_state(results_df):
+    render_weekly_summary_metrics(results_df)
+    filtered_df = render_weekly_filter_controls(results_df)
+    render_weekly_screening_table(filtered_df, results_df)
+    render_weekly_detail(filtered_df, weekly_frames)
+
+page_loader.update("주봉 조회 페이지 표시를 마무리하고 있습니다...", 100)
+page_loader.empty()

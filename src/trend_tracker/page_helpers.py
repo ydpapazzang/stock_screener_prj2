@@ -7,6 +7,7 @@ import streamlit as st
 
 from .analysis import (
     analyze_market,
+    analyze_weekly_market,
     apply_result_filters,
     enrich_results_with_backtests,
     evaluate_signal,
@@ -16,7 +17,7 @@ from .analysis import (
     get_latest_business_day,
     get_market_index_snapshots,
 )
-from .charts import create_monthly_chart
+from .charts import create_monthly_chart, create_weekly_chart
 from .config import DEFAULT_TOP_N, MARKET_OPTIONS, get_telegram_chat_id
 from .formatting import format_number, format_percent, to_krx_date
 from .notifications import build_telegram_message, send_telegram_message
@@ -27,11 +28,22 @@ SESSION_FRAMES_KEY = "monthly_frames"
 SESSION_MARKET_KEY = "screen_market"
 SESSION_DATE_KEY = "screen_base_date"
 SESSION_BASE_DATE_INPUT_KEY = "base_date_input"
+WEEKLY_SESSION_RESULTS_KEY = "weekly_results_df"
+WEEKLY_SESSION_FRAMES_KEY = "weekly_frames"
+WEEKLY_SESSION_MARKET_KEY = "weekly_screen_market"
+WEEKLY_SESSION_DATE_KEY = "weekly_screen_base_date"
+WEEKLY_SESSION_BASE_DATE_INPUT_KEY = "weekly_base_date_input"
+WEEKLY_SESSION_MAX_SPREAD_KEY = "weekly_max_spread_pct"
+WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY = "weekly_min_volume_multiple"
 SESSION_DATA_DIAGNOSTICS_KEY = "last_data_diagnostics"
 
 
 def _set_today_base_date(latest_business_day) -> None:
     st.session_state[SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
+
+
+def _set_today_weekly_base_date(latest_business_day) -> None:
+    st.session_state[WEEKLY_SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
 
 
 def _run_default_screening_query() -> None:
@@ -264,6 +276,75 @@ def ensure_default_screening_results() -> tuple[pd.DataFrame | None, dict[str, p
     return results
 
 
+def render_weekly_query_sidebar() -> None:
+    with st.sidebar:
+        st.header("주봉 조회 설정")
+        latest_business_day = datetime.strptime(get_latest_business_day(), "%Y%m%d").date()
+        if WEEKLY_SESSION_BASE_DATE_INPUT_KEY not in st.session_state:
+            st.session_state[WEEKLY_SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
+        if WEEKLY_SESSION_MAX_SPREAD_KEY not in st.session_state:
+            st.session_state[WEEKLY_SESSION_MAX_SPREAD_KEY] = 10.0
+        if WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY not in st.session_state:
+            st.session_state[WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY] = 1.5
+
+        date_col, today_col = st.columns([3, 1])
+        with date_col:
+            base_date = st.date_input(
+                "기준일자",
+                max_value=latest_business_day,
+                key=WEEKLY_SESSION_BASE_DATE_INPUT_KEY,
+            )
+        with today_col:
+            st.write("")
+            st.write("")
+            st.button(
+                "Today",
+                use_container_width=True,
+                on_click=_set_today_weekly_base_date,
+                args=(latest_business_day,),
+                key="weekly_today_button",
+            )
+
+        market_label = st.selectbox("시장", list(MARKET_OPTIONS.keys()), index=0, key="weekly_market_label")
+        top_n = st.slider("대상 종목 수", min_value=30, max_value=300, value=DEFAULT_TOP_N, step=10, key="weekly_top_n")
+        max_spread_pct = st.slider("이평선 이격 최대값(%)", min_value=5.0, max_value=10.0, value=float(st.session_state[WEEKLY_SESSION_MAX_SPREAD_KEY]), step=0.5)
+        min_volume_multiple = st.slider("거래량 배수 최소값", min_value=1.5, max_value=2.0, value=float(st.session_state[WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY]), step=0.1)
+        query_button = st.button("주봉 조건 조회", type="primary", use_container_width=True)
+
+    st.session_state[WEEKLY_SESSION_MAX_SPREAD_KEY] = max_spread_pct
+    st.session_state[WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY] = min_volume_multiple
+
+    if query_button:
+        loading_modal = _show_loading_modal("주봉 조건 종목을 조회하고 있습니다...")
+        try:
+            with st.spinner("주봉 조건 종목을 조회하고 있습니다..."):
+                results_df, weekly_frames = analyze_weekly_market(
+                    base_date=to_krx_date(base_date),
+                    market=MARKET_OPTIONS[market_label],
+                    top_n=top_n,
+                    max_ma_spread_pct=max_spread_pct,
+                    min_volume_multiple=min_volume_multiple,
+                )
+        finally:
+            loading_modal.empty()
+
+        st.session_state[WEEKLY_SESSION_RESULTS_KEY] = results_df
+        st.session_state[WEEKLY_SESSION_FRAMES_KEY] = weekly_frames
+        st.session_state[WEEKLY_SESSION_MARKET_KEY] = market_label
+        st.session_state[WEEKLY_SESSION_DATE_KEY] = to_krx_date(base_date)
+        st.session_state["last_data_error"] = get_last_data_error()
+        st.session_state[SESSION_DATA_DIAGNOSTICS_KEY] = get_last_data_diagnostics()
+
+
+def get_weekly_session_results() -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame], str | None, str | None]:
+    return (
+        st.session_state.get(WEEKLY_SESSION_RESULTS_KEY),
+        st.session_state.get(WEEKLY_SESSION_FRAMES_KEY, {}),
+        st.session_state.get(WEEKLY_SESSION_MARKET_KEY),
+        st.session_state.get(WEEKLY_SESSION_DATE_KEY),
+    )
+
+
 def _build_source_badges_html() -> str:
     diagnostics = st.session_state.get(SESSION_DATA_DIAGNOSTICS_KEY, {})
     if not diagnostics:
@@ -323,6 +404,20 @@ def render_empty_state(results_df: pd.DataFrame | None) -> bool:
         return True
     if results_df.empty:
         st.warning("조회 결과가 없습니다. 기준일자나 시장을 바꿔 다시 시도해주세요.")
+        last_error = st.session_state.get("last_data_error")
+        if last_error:
+            st.error(f"데이터 진단: {last_error}")
+        render_data_source_diagnostics()
+        return True
+    return False
+
+
+def render_weekly_empty_state(results_df: pd.DataFrame | None) -> bool:
+    if results_df is None:
+        st.info("왼쪽 사이드바에서 시장과 기준일을 고른 뒤 `주봉 조건 조회` 버튼을 눌러주세요.")
+        return True
+    if results_df.empty:
+        st.warning("주봉 조건 분석 결과가 없습니다. 기준일자나 시장을 바꿔 다시 시도해주세요.")
         last_error = st.session_state.get("last_data_error")
         if last_error:
             st.error(f"데이터 진단: {last_error}")
@@ -614,6 +709,102 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
     )
 
 
+def render_weekly_summary_metrics(results_df: pd.DataFrame) -> None:
+    setup_count = int((results_df["최종조건충족"].astype(str) == "예").sum())
+    dense_count = int((results_df["밀집조건"].astype(str) == "예").sum())
+    breakout_count = int((results_df["돌파조건"].astype(str) == "예").sum())
+    volume_count = int((results_df["거래량조건"].astype(str) == "예").sum())
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("최종 조건 충족", setup_count)
+    col2.metric("이평선 밀집", dense_count)
+    col3.metric("20·40주 돌파", breakout_count)
+    col4.metric("거래량 급증", volume_count)
+
+
+def render_weekly_filter_controls(results_df: pd.DataFrame) -> pd.DataFrame:
+    filter_col1, filter_col2 = st.columns([1, 1])
+    with filter_col1:
+        only_setups = st.checkbox("최종 조건 충족 종목만 보기", value=True, key="weekly_only_setups")
+    with filter_col2:
+        name_query = st.text_input("종목명/코드 검색", value="", key="weekly_name_query")
+
+    sort_col1, sort_col2 = st.columns([1, 1])
+    with sort_col1:
+        sort_by = st.selectbox("정렬 기준", ["거래량배수", "이평선이격률", "시가총액", "현재가", "종목명"], index=0, key="weekly_sort_by")
+    with sort_col2:
+        sort_direction = st.selectbox("정렬 방향", ["내림차순", "오름차순"], index=0, key="weekly_sort_direction")
+
+    filtered_df = results_df.copy()
+    if only_setups:
+        filtered_df = filtered_df[filtered_df["최종조건충족"].astype(str) == "예"]
+
+    query = name_query.strip()
+    if query:
+        filtered_df = filtered_df[
+            filtered_df["종목명"].astype(str).str.contains(query, case=False, na=False)
+            | filtered_df["종목코드"].astype(str).str.contains(query, case=False, na=False)
+        ]
+
+    ascending = sort_direction == "오름차순"
+    filtered_df = filtered_df.sort_values(sort_by, ascending=ascending).reset_index(drop=True)
+    return filtered_df
+
+
+def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
+    st.subheader("주봉 조건 검색 결과")
+    st.caption(f"현재 표시 종목 수 {len(filtered_df)} / 전체 분석 종목 수 {len(results_df)}")
+    render_data_source_badges()
+
+    if filtered_df.empty:
+        st.warning("현재 주봉 조건에 맞는 종목이 없습니다.")
+        return
+
+    display_df = filtered_df.copy()
+    for column in ["현재가", "10주선", "20주선", "40주선", "거래량", "10주평균거래량", "시가총액"]:
+        if column in display_df.columns:
+            display_df[column] = display_df[column].map(format_number)
+    for column in ["이평선이격률", "거래량배수"]:
+        if column in display_df.columns:
+            display_df[column] = display_df[column].map(lambda value: "미계산" if pd.isna(value) else f"{float(value):.2f}")
+
+    st.download_button(
+        "주봉 검색 결과 CSV 다운로드",
+        data=filtered_df.to_csv(index=False, encoding="utf-8-sig"),
+        file_name="weekly_screening_results.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+    st.dataframe(
+        display_df[
+            [
+                "시장",
+                "종목명",
+                "종목코드",
+                "현재가",
+                "10주선",
+                "20주선",
+                "40주선",
+                "이평선이격률",
+                "거래량배수",
+                "밀집조건",
+                "돌파조건",
+                "거래량조건",
+                "최종조건충족",
+                "기준주",
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "종목명": st.column_config.TextColumn(width="medium"),
+            "종목코드": st.column_config.TextColumn(width="small"),
+            "최종조건충족": st.column_config.TextColumn(label="최종 조건", width="small"),
+        },
+    )
+
+
 def render_backtest_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
     st.subheader("백테스트 결과")
     st.caption(f"현재 표시 종목 수 {len(filtered_df)} / 전체 조회 종목 수 {len(results_df)}")
@@ -817,6 +1008,56 @@ def render_detail(filtered_df: pd.DataFrame, monthly_frames: dict[str, pd.DataFr
             st.dataframe(trade_log_df, use_container_width=True, hide_index=True)
         else:
             st.info("아직 기록된 매매 로그가 없습니다. 백테스트 실행 후 이력에서 확인할 수 있습니다.")
+
+
+def render_weekly_detail(filtered_df: pd.DataFrame, weekly_frames: dict[str, pd.DataFrame]) -> None:
+    if filtered_df.empty:
+        return
+
+    st.subheader("주봉 상세")
+    selected_name = st.selectbox("상세 조회 종목", filtered_df["종목명"].tolist(), key="weekly_detail_name")
+    selected_row = filtered_df[filtered_df["종목명"] == selected_name].iloc[0]
+    selected_weekly = weekly_frames[selected_row["종목코드"]]
+
+    info1, info2, info3, info4 = st.columns(4)
+    info1.metric("현재가", f"{format_number(selected_row['현재가'])}원")
+    info2.metric("이평선 이격률", "미계산" if pd.isna(selected_row["이평선이격률"]) else f"{selected_row['이평선이격률']:.2f}%")
+    info3.metric("거래량 배수", "미계산" if pd.isna(selected_row["거래량배수"]) else f"{selected_row['거래량배수']:.2f}배")
+    info4.metric("최종 조건", str(selected_row["최종조건충족"]))
+
+    cond_col1, cond_col2, cond_col3 = st.columns(3)
+    cond_col1.metric("밀집조건", str(selected_row["밀집조건"]))
+    cond_col2.metric("돌파조건", str(selected_row["돌파조건"]))
+    cond_col3.metric("거래량조건", str(selected_row["거래량조건"]))
+
+    tab_chart, tab_history = st.tabs(["차트", "주별 데이터"])
+    with tab_chart:
+        st.plotly_chart(create_weekly_chart(selected_weekly, selected_name), use_container_width=True)
+
+    with tab_history:
+        history_df = selected_weekly.tail(30).copy().reset_index()
+        date_column = history_df.columns[0]
+        history_df = history_df.rename(columns={date_column: "날짜"})
+        history_df["날짜"] = pd.to_datetime(history_df["날짜"]).dt.strftime("%Y-%m-%d")
+        history_df = history_df.rename(
+            columns={
+                "close": "주봉 종가",
+                "ma10": "10주선",
+                "ma20": "20주선",
+                "ma40": "40주선",
+                "volume": "주간 거래량",
+                "avg_volume_10": "10주 평균 거래량",
+                "volume_multiple": "거래량 배수",
+                "ma_spread_pct": "이평선 이격률",
+            }
+        )
+        for column in ["주봉 종가", "10주선", "20주선", "40주선", "주간 거래량", "10주 평균 거래량"]:
+            if column in history_df.columns:
+                history_df[column] = history_df[column].map(format_number)
+        for column in ["거래량 배수", "이평선 이격률"]:
+            if column in history_df.columns:
+                history_df[column] = history_df[column].map(lambda value: "미계산" if pd.isna(value) else f"{float(value):.2f}")
+        st.dataframe(history_df, use_container_width=True, hide_index=True)
 
 
 def render_settings_page() -> None:

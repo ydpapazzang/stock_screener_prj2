@@ -56,6 +56,27 @@ class AnalysisResult:
 
 
 @dataclass
+class WeeklyAnalysisResult:
+    ticker: str
+    name: str
+    market: str
+    close: float
+    ma10: float
+    ma20: float
+    ma40: float
+    ma_spread_pct: float
+    weekly_volume: float
+    avg_volume_10: float | None
+    volume_multiple: float | None
+    dense_ready: bool
+    breakout_ready: bool
+    volume_ready: bool
+    setup_ready: bool
+    signal_week: pd.Timestamp
+    market_cap: int = 0
+
+
+@dataclass
 class BacktestMetrics:
     summary: str
     cumulative_return_pct: float | None
@@ -569,6 +590,25 @@ def build_monthly_frame(daily_df: pd.DataFrame) -> pd.DataFrame:
     return monthly.dropna(subset=["ma10"])
 
 
+def build_weekly_frame(daily_df: pd.DataFrame) -> pd.DataFrame:
+    weekly = (
+        daily_df[["open", "close", "volume"]]
+        .resample("W-FRI")
+        .agg({"open": "first", "close": "last", "volume": "sum"})
+        .dropna(subset=["open", "close"])
+    )
+    weekly["ma10"] = weekly["close"].rolling(10).mean()
+    weekly["ma20"] = weekly["close"].rolling(20).mean()
+    weekly["ma40"] = weekly["close"].rolling(40).mean()
+    weekly["avg_volume_10"] = weekly["volume"].shift(1).rolling(10).mean()
+    weekly["volume_multiple"] = weekly["volume"] / weekly["avg_volume_10"]
+    weekly["weekly_return_pct"] = weekly["close"].pct_change() * 100
+    ma_min = weekly[["ma10", "ma20", "ma40"]].min(axis=1)
+    ma_max = weekly[["ma10", "ma20", "ma40"]].max(axis=1)
+    weekly["ma_spread_pct"] = ((ma_max - ma_min) / ma_min.replace(0, pd.NA)) * 100
+    return weekly.dropna(subset=["ma10", "ma20", "ma40"])
+
+
 def _is_ma10_rising(monthly_df: pd.DataFrame) -> bool:
     if len(monthly_df) < 2:
         return False
@@ -616,6 +656,85 @@ def find_latest_breakout(monthly_df: pd.DataFrame) -> tuple[pd.Timestamp | None,
     current_date = monthly_df.index[-1]
     months_since_breakout = (current_date.year - latest_breakout_date.year) * 12 + (current_date.month - latest_breakout_date.month)
     return latest_breakout_date, months_since_breakout
+
+
+def _evaluate_weekly_setup(
+    weekly_df: pd.DataFrame,
+    max_ma_spread_pct: float,
+    min_volume_multiple: float,
+) -> tuple[bool, bool, bool, bool]:
+    if len(weekly_df) < 2:
+        return False, False, False, False
+
+    current = weekly_df.iloc[-1]
+    previous = weekly_df.iloc[-2]
+    previous_spread = previous.get("ma_spread_pct")
+    volume_multiple = current.get("volume_multiple")
+
+    dense_ready = pd.notna(previous_spread) and float(previous_spread) <= float(max_ma_spread_pct)
+    breakout_ready = (
+        pd.notna(current.get("ma20"))
+        and pd.notna(current.get("ma40"))
+        and pd.notna(previous.get("ma20"))
+        and pd.notna(previous.get("ma40"))
+        and float(current["close"]) > float(current["ma20"])
+        and float(current["close"]) > float(current["ma40"])
+        and float(previous["close"]) <= float(previous["ma20"])
+        and float(previous["close"]) <= float(previous["ma40"])
+    )
+    volume_ready = pd.notna(volume_multiple) and float(volume_multiple) >= float(min_volume_multiple)
+    setup_ready = bool(dense_ready and breakout_ready and volume_ready)
+    return bool(dense_ready), bool(breakout_ready), bool(volume_ready), setup_ready
+
+
+def _analyze_single_ticker_weekly(
+    item,
+    start_date: str,
+    base_date: str,
+    max_ma_spread_pct: float,
+    min_volume_multiple: float,
+) -> tuple[WeeklyAnalysisResult | None, pd.DataFrame | None, str]:
+    daily_df, source_used = _get_daily_ohlcv(
+        base_date=base_date,
+        start_date=start_date,
+        ticker=item.티커,
+        market=item.시장,
+    )
+
+    if daily_df.empty:
+        return None, None, source_used
+
+    weekly_df = build_weekly_frame(daily_df)
+    if len(weekly_df) < 41:
+        return None, None, source_used
+
+    dense_ready, breakout_ready, volume_ready, setup_ready = _evaluate_weekly_setup(
+        weekly_df=weekly_df,
+        max_ma_spread_pct=max_ma_spread_pct,
+        min_volume_multiple=min_volume_multiple,
+    )
+    current = weekly_df.iloc[-1]
+
+    result = WeeklyAnalysisResult(
+        ticker=item.티커,
+        name=item.종목명,
+        market=item.시장,
+        close=float(current["close"]),
+        ma10=float(current["ma10"]),
+        ma20=float(current["ma20"]),
+        ma40=float(current["ma40"]),
+        ma_spread_pct=float(current["ma_spread_pct"]) if pd.notna(current["ma_spread_pct"]) else float("nan"),
+        weekly_volume=float(current["volume"]),
+        avg_volume_10=float(current["avg_volume_10"]) if pd.notna(current["avg_volume_10"]) else None,
+        volume_multiple=float(current["volume_multiple"]) if pd.notna(current["volume_multiple"]) else None,
+        dense_ready=dense_ready,
+        breakout_ready=breakout_ready,
+        volume_ready=volume_ready,
+        setup_ready=setup_ready,
+        signal_week=pd.Timestamp(weekly_df.index[-1]),
+        market_cap=int(item.시가총액),
+    )
+    return result, weekly_df, source_used
 
 
 def run_backtest(monthly_df: pd.DataFrame, limit: int = BACKTEST_BAR_LIMIT) -> BacktestMetrics:
@@ -867,6 +986,87 @@ def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFram
             lambda ticker: _is_ma10_above_ma20(monthly_frames[ticker]) if ticker in monthly_frames else False
         )
     return frame, monthly_frames
+
+
+def analyze_weekly_market(
+    base_date: str,
+    market: str,
+    top_n: int,
+    max_ma_spread_pct: float = 10.0,
+    min_volume_multiple: float = 1.5,
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    global LAST_DATA_ERROR
+    LAST_DATA_ERROR = None
+    _reset_diagnostics()
+    end_date = datetime.strptime(base_date, "%Y%m%d").date()
+    start_date = end_date - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+    pool = get_market_cap_pool(base_date, market, top_n)
+
+    results: list[WeeklyAnalysisResult] = []
+    weekly_frames: dict[str, pd.DataFrame] = {}
+
+    pool_items = list(pool.itertuples(index=False))
+    start_date_str = to_krx_date(start_date)
+    worker_count = min(MAX_ANALYSIS_WORKERS, max(1, len(pool_items)))
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(
+                _analyze_single_ticker_weekly,
+                item,
+                start_date_str,
+                base_date,
+                max_ma_spread_pct,
+                min_volume_multiple,
+            )
+            for item in pool_items
+        ]
+        for future in as_completed(futures):
+            result, weekly_df, source_used = future.result()
+            if source_used and source_used != "none":
+                _increment_ohlcv_source(source_used)
+            if result is None or weekly_df is None:
+                continue
+            results.append(result)
+            weekly_frames[result.ticker] = weekly_df
+
+    frame = pd.DataFrame(
+        [
+            {
+                "시장": item.market,
+                "종목명": item.name,
+                "종목코드": item.ticker,
+                "현재가": item.close,
+                "10주선": item.ma10,
+                "20주선": item.ma20,
+                "40주선": item.ma40,
+                "이평선이격률": item.ma_spread_pct,
+                "밀집조건": "예" if item.dense_ready else "아니오",
+                "돌파조건": "예" if item.breakout_ready else "아니오",
+                "거래량": item.weekly_volume,
+                "10주평균거래량": item.avg_volume_10,
+                "거래량배수": item.volume_multiple,
+                "거래량조건": "예" if item.volume_ready else "아니오",
+                "최종조건충족": "예" if item.setup_ready else "아니오",
+                "기준주": item.signal_week.strftime("%Y-%m-%d"),
+                "시가총액": item.market_cap,
+                "가격데이터소스": "",
+            }
+            for item in results
+        ]
+    )
+
+    if frame.empty:
+        return frame, weekly_frames
+
+    setup_sort = pd.CategoricalDtype(["예", "아니오"], ordered=True)
+    for column in ["밀집조건", "돌파조건", "거래량조건", "최종조건충족"]:
+        frame[column] = frame[column].astype(setup_sort)
+    frame = frame.sort_values(
+        ["최종조건충족", "거래량배수", "이평선이격률", "시가총액"],
+        ascending=[True, False, True, False],
+    ).reset_index(drop=True)
+    return frame, weekly_frames
 
 
 def apply_result_filters(
