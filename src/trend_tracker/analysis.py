@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import streamlit as st
+import holidays
 from pykrx import stock
 
 from .config import (
@@ -108,14 +109,14 @@ def _add_error(message: str) -> None:
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def get_latest_business_day() -> str:
     today = datetime.now().date()
+    kr_holidays = holidays.country_holidays("KR")
     for offset in range(15):
         current = today - timedelta(days=offset)
-        try:
-            market_cap = stock.get_market_cap_by_ticker(to_krx_date(current), market="KOSPI")
-        except Exception:
+        if current.weekday() >= 5:
             continue
-        if not market_cap.empty:
-            return to_krx_date(current)
+        if current in kr_holidays:
+            continue
+        return to_krx_date(current)
     return to_krx_date(today)
 
 

@@ -62,6 +62,14 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
+def _empty_universe() -> pd.DataFrame:
+    return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+
+
+def _empty_ohlcv() -> pd.DataFrame:
+    return pd.DataFrame(columns=["종가", "거래량"])
+
+
 @dataclass(frozen=True)
 class OverseasMarketMap:
     listing_source: str
@@ -96,20 +104,54 @@ class KISMarketDataProvider(MarketDataProvider):
         raise ValueError(f"Unsupported market for KIS provider: {market}")
 
     def _get_domestic_universe(self, market: str, top_n: int, base_date: str) -> pd.DataFrame:
-        market_cap = stock.get_market_cap_by_ticker(base_date, market=market)
-        if market_cap.empty:
-            return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+        market_code = "0001" if market == "KOSPI" else "1001"
+        payload = self.client.get(
+            path="/uapi/domestic-stock/v1/quotations/volume-rank",
+            tr_id="FHPST01710000",
+            params={
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_SCR_DIV_CODE": "20171",
+                "FID_INPUT_ISCD": market_code,
+                "FID_DIV_CLS_CODE": "0",
+                "FID_BLNG_CLS_CODE": "3",
+                "FID_TRGT_CLS_CODE": "111111111",
+                "FID_TRGT_EXLS_CLS_CODE": "0000000000",
+                "FID_INPUT_PRICE_1": "0",
+                "FID_INPUT_PRICE_2": "",
+                "FID_VOL_CNT": "0",
+                "FID_INPUT_DATE_1": "",
+            },
+        )
+        rows = _as_frame(payload, "output")
+        if rows.empty:
+            return _empty_universe()
 
-        market_cap = market_cap.reset_index()
-        if "티커" not in market_cap.columns:
-            market_cap = market_cap.rename(columns={market_cap.columns[0]: "티커"})
-        if "시가총액" not in market_cap.columns:
-            return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
-
-        market_cap["종목명"] = market_cap["티커"].map(stock.get_market_ticker_name)
-        market_cap["시장"] = market
-        market_cap = market_cap.sort_values("시가총액", ascending=False).head(top_n)
-        return market_cap[["티커", "종목명", "시장", "시가총액"]]
+        normalized = pd.DataFrame(
+            {
+                "티커": rows.apply(
+                    lambda row: str(
+                        _pick_first(row, "mksc_shrn_iscd", "stck_shrn_iscd", "hts_kor_iscd", "pdno", "iscd") or ""
+                    ).zfill(6),
+                    axis=1,
+                ),
+                "종목명": rows.apply(
+                    lambda row: str(
+                        _pick_first(row, "hts_kor_isnm", "stck_kor_isnm", "data_rank_name", "prdt_name", "name") or ""
+                    ),
+                    axis=1,
+                ),
+                "시장": market,
+                "시가총액": rows.apply(
+                    lambda row: _to_int(_pick_first(row, "hts_avls", "data_rank_amt", "acml_tr_pbmn", "stck_avls")),
+                    axis=1,
+                ),
+            }
+        )
+        normalized = normalized[normalized["티커"].str.strip() != ""]
+        normalized = normalized.drop_duplicates(subset=["티커"]).head(top_n)
+        if normalized.empty:
+            return _empty_universe()
+        return normalized
 
     def _get_overseas_universe(self, market: str, top_n: int) -> pd.DataFrame:
         market_meta = OVERSEAS_MARKET_MAP[market]
@@ -175,7 +217,7 @@ class KISMarketDataProvider(MarketDataProvider):
         if rows.empty:
             rows = _as_frame(payload, "output")
         if rows.empty:
-            return pd.DataFrame(columns=["종가", "거래량"])
+            return _empty_ohlcv()
 
         rows["date"] = pd.to_datetime(
             rows.apply(
@@ -195,7 +237,7 @@ class KISMarketDataProvider(MarketDataProvider):
         )
         normalized = rows.dropna(subset=["date", "close"]).copy()
         if normalized.empty:
-            return pd.DataFrame(columns=["종가", "거래량"])
+            return _empty_ohlcv()
 
         normalized = normalized.sort_values("date").set_index("date")
         return normalized[["close", "volume"]].rename(columns={"close": "종가", "volume": "거래량"})
@@ -218,7 +260,7 @@ class KISMarketDataProvider(MarketDataProvider):
         if rows.empty:
             rows = _as_frame(payload, "output")
         if rows.empty:
-            return pd.DataFrame(columns=["종가", "거래량"])
+            return _empty_ohlcv()
 
         rows["date"] = pd.to_datetime(
             rows.apply(lambda row: _pick_first(row, "xymd", "date", "bas_dt"), axis=1),
@@ -235,7 +277,7 @@ class KISMarketDataProvider(MarketDataProvider):
         )
         normalized = rows.dropna(subset=["date", "close"]).copy()
         if normalized.empty:
-            return pd.DataFrame(columns=["종가", "거래량"])
+            return _empty_ohlcv()
 
         normalized = normalized.sort_values("date").set_index("date")
         return normalized[["close", "volume"]].rename(columns={"close": "종가", "volume": "거래량"})
