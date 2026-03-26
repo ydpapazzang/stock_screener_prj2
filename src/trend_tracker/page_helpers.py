@@ -291,8 +291,6 @@ def render_weekly_query_sidebar() -> None:
             st.session_state[WEEKLY_SESSION_BASE_DATE_INPUT_KEY] = latest_business_day
         if WEEKLY_SESSION_MAX_SPREAD_KEY not in st.session_state:
             st.session_state[WEEKLY_SESSION_MAX_SPREAD_KEY] = 10.0
-        if WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY not in st.session_state:
-            st.session_state[WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY] = 1.5
 
         date_col, today_col = st.columns([3, 1])
         with date_col:
@@ -315,11 +313,9 @@ def render_weekly_query_sidebar() -> None:
         market_label = st.selectbox("시장", list(MARKET_OPTIONS.keys()), index=0, key="weekly_market_label")
         top_n = st.slider("대상 종목 수", min_value=30, max_value=300, value=DEFAULT_TOP_N, step=10, key="weekly_top_n")
         max_spread_pct = st.slider("이평선 이격 최대값(%)", min_value=5.0, max_value=10.0, value=float(st.session_state[WEEKLY_SESSION_MAX_SPREAD_KEY]), step=0.5)
-        min_volume_multiple = st.slider("거래량 배수 최소값", min_value=1.5, max_value=2.0, value=float(st.session_state[WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY]), step=0.1)
         query_button = st.button("주봉 조건 조회", type="primary", use_container_width=True)
 
     st.session_state[WEEKLY_SESSION_MAX_SPREAD_KEY] = max_spread_pct
-    st.session_state[WEEKLY_SESSION_MIN_VOLUME_MULTIPLE_KEY] = min_volume_multiple
 
     if query_button:
         loading_modal = _show_loading_modal("주봉 조건 종목을 조회하고 있습니다...")
@@ -330,7 +326,7 @@ def render_weekly_query_sidebar() -> None:
                     market=MARKET_OPTIONS[market_label],
                     top_n=top_n,
                     max_ma_spread_pct=max_spread_pct,
-                    min_volume_multiple=min_volume_multiple,
+                    min_volume_multiple=0.0,
                 )
         finally:
             loading_modal.empty()
@@ -791,7 +787,6 @@ def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.Data
                 "추세전환조건",
                 "돌파조건",
                 "과열아님조건",
-                "거래량조건",
                 "최종조건충족",
                 "기준주",
             ]
@@ -1018,9 +1013,8 @@ def render_weekly_detail(filtered_df: pd.DataFrame, weekly_frames: dict[str, pd.
     cond_col2.metric("추세전환조건", str(selected_row["추세전환조건"]))
     cond_col3.metric("돌파조건", str(selected_row["돌파조건"]))
 
-    cond_col4, cond_col5 = st.columns(2)
+    cond_col4 = st.columns(1)[0]
     cond_col4.metric("과열아님조건", str(selected_row["과열아님조건"]))
-    cond_col5.metric("거래량조건", str(selected_row["거래량조건"]))
 
     tab_chart, tab_history = st.tabs(["차트", "주별 데이터"])
     with tab_chart:

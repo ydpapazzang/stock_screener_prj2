@@ -712,7 +712,7 @@ def _evaluate_weekly_setup(
         and float(current["close"]) <= max(float(current["ma20"]), float(current["ma40"])) * 1.08
     )
     volume_ready = pd.notna(volume_multiple) and float(volume_multiple) >= float(min_volume_multiple)
-    setup_ready = bool(dense_ready and breakout_ready and trend_turn_ready and not_extended_ready and volume_ready)
+    setup_ready = bool(dense_ready and breakout_ready and trend_turn_ready and not_extended_ready)
     return (
         bool(dense_ready),
         bool(breakout_ready),

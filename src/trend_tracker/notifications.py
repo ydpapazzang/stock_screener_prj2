@@ -39,7 +39,7 @@ def build_weekly_telegram_message(results_df: pd.DataFrame, base_date: str, mark
     setups = results_df[results_df["최종조건충족"].astype(str) == "예"].head(10)
 
     lines = [f"[{label_date} 기준 {market} 주봉 조건 검색]", ""]
-    lines.append("10·20·40주선 밀집 + 20·40주 돌파 + 거래량 급증 종목")
+    lines.append("10·20·40주선 밀집 + 20·40주 돌파 + 초기 추세 전환 종목")
 
     if setups.empty:
         lines.append("- 이번 조회에서는 최종 조건 충족 종목이 없습니다.")
@@ -49,9 +49,7 @@ def build_weekly_telegram_message(results_df: pd.DataFrame, base_date: str, mark
             lines.append(f"  현재가: {format_number(row['현재가'])}원")
             lines.append(f"  10주선/20주선/40주선: {format_number(row['10주선'])} / {format_number(row['20주선'])} / {format_number(row['40주선'])}")
             spread_text = "미계산" if pd.isna(row["이평선이격률"]) else f"{float(row['이평선이격률']):.2f}%"
-            volume_text = "미계산" if pd.isna(row["거래량배수"]) else f"{float(row['거래량배수']):.2f}배"
             lines.append(f"  이평선 이격률: {spread_text}")
-            lines.append(f"  거래량 배수: {volume_text}")
 
     app_url = get_public_app_url().strip()
     if app_url:
