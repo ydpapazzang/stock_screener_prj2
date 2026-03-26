@@ -96,8 +96,9 @@ def get_market_index_snapshots() -> list[dict[str, object]]:
         normalized = _normalize_daily_ohlcv(frame)
         if len(normalized) < 2:
             continue
-        latest_close = float(normalized.iloc[-1]["醫낃?"])
-        previous_close = float(normalized.iloc[-2]["醫낃?"])
+        # Avoid relying on locale-sensitive column labels for cached index frames.
+        latest_close = float(normalized.iloc[-1, 0])
+        previous_close = float(normalized.iloc[-2, 0])
         change_pct = ((latest_close / previous_close) - 1) * 100 if previous_close else None
         snapshots.append(
             {
