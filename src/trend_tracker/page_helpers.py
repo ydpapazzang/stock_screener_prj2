@@ -475,37 +475,37 @@ def render_cnn_fear_greed_card() -> None:
 
 def render_filter_controls(
     results_df: pd.DataFrame,
-    default_sort_by: str = "??????",
+    default_sort_by: str = "돌파경과개월",
     key_prefix: str = "default",
 ) -> pd.DataFrame:
     filter_col1, filter_col2 = st.columns([1, 1])
     with filter_col1:
-        only_breakouts = st.checkbox("?? ??? ??", value=True, key=f"{key_prefix}_only_breakouts")
+        only_breakouts = st.checkbox("돌파 종목만 보기", value=True, key=f"{key_prefix}_only_breakouts")
     with filter_col2:
-        name_query = st.text_input("???/?? ??", value="", key=f"{key_prefix}_name_query")
+        name_query = st.text_input("종목명/코드 검색", value="", key=f"{key_prefix}_name_query")
 
     sort_col1, sort_col2, sort_col3 = st.columns([1, 1, 1])
-    sort_options = ["??????", "???? ???", "??? ???", "???", "?????", "????", "???"]
+    sort_options = ["돌파경과개월", "백테스트 수익률", "거래량 증감률", "현재가", "전월거래량", "시가총액", "종목명"]
     default_index = sort_options.index(default_sort_by) if default_sort_by in sort_options else 0
     with sort_col1:
-        sort_by = st.selectbox("?? ??", sort_options, index=default_index, key=f"{key_prefix}_sort_by")
+        sort_by = st.selectbox("정렬 기준", sort_options, index=default_index, key=f"{key_prefix}_sort_by")
     with sort_col2:
-        sort_direction = st.selectbox("?? ??", ["????", "????"], index=0, key=f"{key_prefix}_sort_direction")
+        sort_direction = st.selectbox("정렬 방향", ["오름차순", "내림차순"], index=0, key=f"{key_prefix}_sort_direction")
     with sort_col3:
         breakout_within_months = st.selectbox(
-            "?? ?? ??",
+            "최근 돌파 기준",
             [0, 1, 3, 6, 12],
             index=2,
-            format_func=lambda value: "??" if value == 0 else f"{value}?? ??",
+            format_func=lambda value: "전체" if value == 0 else f"{value}개월 이내",
             key=f"{key_prefix}_breakout_within_months",
         )
 
     advanced_col1, advanced_col2 = st.columns([1, 1])
     with advanced_col1:
-        volume_up_only = st.checkbox("??? ?? ???", value=False, key=f"{key_prefix}_volume_up_only")
+        volume_up_only = st.checkbox("거래량 증가 종목만", value=False, key=f"{key_prefix}_volume_up_only")
     with advanced_col2:
         min_backtest_return = st.number_input(
-            "???? ??? ???(%)",
+            "백테스트 수익률 최소값(%)",
             value=0.0,
             step=5.0,
             key=f"{key_prefix}_min_backtest_return",
@@ -513,9 +513,9 @@ def render_filter_controls(
 
     trend_col1, trend_col2 = st.columns([1, 1])
     with trend_col1:
-        ma10_rising_only = st.checkbox("MA10 ?? ???", value=False, key=f"{key_prefix}_ma10_rising_only")
+        ma10_rising_only = st.checkbox("MA10 상승 종목만", value=False, key=f"{key_prefix}_ma10_rising_only")
     with trend_col2:
-        dual_trend_only = st.checkbox("?? ?? ?? ??", value=False, key=f"{key_prefix}_dual_trend_only")
+        dual_trend_only = st.checkbox("장기 추세 이중 확인", value=False, key=f"{key_prefix}_dual_trend_only")
 
     return apply_result_filters(
         results_df=results_df,
@@ -527,18 +527,18 @@ def render_filter_controls(
         min_backtest_return=min_backtest_return,
         breakout_within_months=breakout_within_months,
         sort_by=sort_by,
-        ascending=sort_direction == "????",
+        ascending=sort_direction == "오름차순",
     )
 
 
 def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
-    st.subheader("???? ??")
-    st.caption(f"?? ?? ?? ? {len(filtered_df)} / ?? ?? ?? ? {len(results_df)}")
+    st.subheader("스크리닝 결과")
+    st.caption(f"현재 표시 종목 수 {len(filtered_df)} / 전체 조회 종목 수 {len(results_df)}")
     render_data_source_badges()
 
     display_df = _format_common_display_df(filtered_df)
     if display_df.empty:
-        st.warning("?? ?? ??? ?? ??? ????.")
+        st.warning("현재 필터 조건에 맞는 종목이 없습니다.")
         return
 
     csv_df = filtered_df.copy()
@@ -546,7 +546,7 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
         csv_df.iloc[:, 7] = csv_df.iloc[:, 7].fillna("-")
 
     st.download_button(
-        "???? ?? CSV ????",
+        "스크리닝 결과 CSV 다운로드",
         data=csv_df.to_csv(index=False, encoding="utf-8-sig"),
         file_name="screening_results.csv",
         mime="text/csv",
@@ -576,11 +576,11 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
             display_df.columns[1] if len(display_df.columns) > 1 else "": st.column_config.TextColumn(width="medium"),
             display_df.columns[2] if len(display_df.columns) > 2 else "": st.column_config.TextColumn(width="small"),
             display_df.columns[6] if len(display_df.columns) > 6 else "": st.column_config.TextColumn(width="small"),
-            display_df.columns[5] if len(display_df.columns) > 5 else "": st.column_config.TextColumn(label="??"),
+            display_df.columns[5] if len(display_df.columns) > 5 else "": st.column_config.TextColumn(label="돌파"),
             display_df.columns[7] if len(display_df.columns) > 7 else "": st.column_config.TextColumn(width="small"),
             display_df.columns[8] if len(display_df.columns) > 8 else "": st.column_config.NumberColumn(format="%d"),
-            "ma10_rising_label": st.column_config.TextColumn(label="MA10 ??", width="small"),
-            "dual_trend_label": st.column_config.TextColumn(label="????", width="small"),
+            "ma10_rising_label": st.column_config.TextColumn(label="MA10 상승", width="small"),
+            "dual_trend_label": st.column_config.TextColumn(label="장기추세", width="small"),
         },
     )
 
@@ -809,24 +809,24 @@ def _format_common_display_df(filtered_df: pd.DataFrame) -> pd.DataFrame:
     if len(display_df.columns) > 10:
         display_df.iloc[:, 10] = display_df.iloc[:, 10].map(format_percent)
     if len(display_df.columns) > 12:
-        display_df.iloc[:, 12] = display_df.iloc[:, 12].map(lambda value: "???" if pd.isna(value) else format_percent(value))
+        display_df.iloc[:, 12] = display_df.iloc[:, 12].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
     if "MDD" in display_df.columns:
-        display_df["MDD"] = display_df["MDD"].map(lambda value: "???" if pd.isna(value) else format_percent(-abs(value)))
+        display_df["MDD"] = display_df["MDD"].map(lambda value: "미계산" if pd.isna(value) else format_percent(-abs(value)))
     if "CAGR" in display_df.columns:
-        display_df["CAGR"] = display_df["CAGR"].map(lambda value: "???" if pd.isna(value) else format_percent(value))
+        display_df["CAGR"] = display_df["CAGR"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
     if len(display_df.columns) > 15:
-        display_df.iloc[:, 15] = display_df.iloc[:, 15].map(lambda value: "???" if pd.isna(value) else f"{value:.1f}")
+        display_df.iloc[:, 15] = display_df.iloc[:, 15].map(lambda value: "미계산" if pd.isna(value) else f"{value:.1f}")
     if len(display_df.columns) > 17:
-        display_df.iloc[:, 17] = display_df.iloc[:, 17].map(lambda value: "???" if pd.isna(value) else format_percent(value))
+        display_df.iloc[:, 17] = display_df.iloc[:, 17].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
     if len(display_df.columns) > 11:
-        display_df.iloc[:, 11] = display_df.iloc[:, 11].fillna("???")
+        display_df.iloc[:, 11] = display_df.iloc[:, 11].fillna("미계산")
     if len(display_df.columns) > 8:
         display_df.iloc[:, 8] = display_df.iloc[:, 8].map(lambda value: "-" if pd.isna(value) else int(value))
 
     if "ma10_rising" in display_df.columns:
-        display_df["ma10_rising_label"] = display_df["ma10_rising"].map(lambda value: "?" if bool(value) else "???")
+        display_df["ma10_rising_label"] = display_df["ma10_rising"].map(lambda value: "예" if bool(value) else "아니오")
     if "above_ma20" in display_df.columns and "ma10_above_ma20" in display_df.columns:
-        display_df["dual_trend_label"] = (display_df["above_ma20"].fillna(False) & display_df["ma10_above_ma20"].fillna(False)).map(lambda value: "?" if bool(value) else "???")
+        display_df["dual_trend_label"] = (display_df["above_ma20"].fillna(False) & display_df["ma10_above_ma20"].fillna(False)).map(lambda value: "예" if bool(value) else "아니오")
 
     return display_df
 

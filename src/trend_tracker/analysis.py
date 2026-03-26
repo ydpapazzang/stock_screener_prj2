@@ -865,7 +865,6 @@ def apply_result_filters(
 ) -> pd.DataFrame:
     filtered_df = results_df.copy()
     columns = list(filtered_df.columns)
-    market_col = columns[0] if len(columns) > 0 else None
     name_col = columns[1] if len(columns) > 1 else None
     ticker_col = columns[2] if len(columns) > 2 else None
     price_col = columns[3] if len(columns) > 3 else None
@@ -873,24 +872,30 @@ def apply_result_filters(
     breakout_elapsed_col = columns[8] if len(columns) > 8 else None
     monthly_volume_col = columns[9] if len(columns) > 9 else None
     volume_change_col = columns[10] if len(columns) > 10 else None
-    backtest_summary_col = columns[11] if len(columns) > 11 else None
     backtest_return_col = columns[12] if len(columns) > 12 else None
     market_cap_col = columns[18] if len(columns) > 18 else None
 
     sort_column_map = {
-        "??????": breakout_elapsed_col,
-        "???? ???": backtest_return_col,
-        "??? ???": volume_change_col,
-        "???": price_col,
-        "?????": monthly_volume_col,
-        "????": market_cap_col,
-        "???": name_col,
+        "돌파경과개월": breakout_elapsed_col,
+        "백테스트 수익률": backtest_return_col,
+        "거래량 증감률": volume_change_col,
+        "현재가": price_col,
+        "전월거래량": monthly_volume_col,
+        "시가총액": market_cap_col,
+        "종목명": name_col,
     }
     actual_sort_by = sort_column_map.get(sort_by, breakout_elapsed_col or price_col or columns[0])
     has_backtest_values = bool(backtest_return_col and filtered_df[backtest_return_col].notna().any())
 
     if only_breakouts and breakout_flag_col:
-        filtered_df = filtered_df[filtered_df[breakout_flag_col] == "?"]
+        breakout_series = filtered_df[breakout_flag_col]
+        if pd.api.types.is_categorical_dtype(breakout_series):
+            yes_value = breakout_series.cat.categories[0]
+        else:
+            unique_values = [value for value in breakout_series.dropna().astype(str).unique().tolist() if value.strip()]
+            yes_value = "예" if "예" in unique_values else (unique_values[0] if unique_values else None)
+        if yes_value is not None:
+            filtered_df = filtered_df[filtered_df[breakout_flag_col].astype(str) == str(yes_value)]
 
     query = name_query.strip()
     if query and name_col and ticker_col:
