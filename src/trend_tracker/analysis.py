@@ -42,6 +42,9 @@ class AnalysisResult:
     signal: str
     latest_breakout_date: pd.Timestamp | None
     months_since_breakout: int | None
+    ma10_rising: bool = False
+    above_ma20: bool = False
+    ma10_above_ma20: bool = False
     backtest_summary: str = "미계산"
     backtest_return_pct: float | None = None
     backtest_mdd_pct: float | None = None
@@ -525,6 +528,9 @@ def _analyze_single_ticker(item, start_date: str, base_date: str) -> tuple[Analy
         signal=signal,
         latest_breakout_date=latest_breakout_date,
         months_since_breakout=months_since_breakout,
+        ma10_rising=_is_ma10_rising(monthly_df),
+        above_ma20=_is_above_ma20(monthly_df),
+        ma10_above_ma20=_is_ma10_above_ma20(monthly_df),
         backtest_summary="미계산",
         backtest_return_pct=None,
         backtest_mdd_pct=None,
@@ -546,9 +552,31 @@ def build_monthly_frame(daily_df: pd.DataFrame) -> pd.DataFrame:
         .dropna(subset=["close"])
     )
     monthly["ma10"] = monthly["close"].rolling(MA_WINDOW).mean()
+    monthly["ma20"] = monthly["close"].rolling(20).mean()
     monthly["volume_change_pct"] = monthly["volume"].pct_change() * 100
     monthly["monthly_return_pct"] = monthly["close"].pct_change() * 100
     return monthly.dropna(subset=["ma10"])
+
+
+def _is_ma10_rising(monthly_df: pd.DataFrame) -> bool:
+    if len(monthly_df) < 2:
+        return False
+    current = monthly_df.iloc[-1]
+    previous = monthly_df.iloc[-2]
+    return pd.notna(current.get("ma10")) and pd.notna(previous.get("ma10")) and float(current["ma10"]) > float(previous["ma10"])
+
+
+def _is_above_ma20(monthly_df: pd.DataFrame) -> bool:
+    current = monthly_df.iloc[-1]
+    ma20 = current.get("ma20")
+    return pd.notna(ma20) and float(current["close"]) > float(ma20)
+
+
+def _is_ma10_above_ma20(monthly_df: pd.DataFrame) -> bool:
+    current = monthly_df.iloc[-1]
+    ma20 = current.get("ma20")
+    ma10 = current.get("ma10")
+    return pd.notna(ma20) and pd.notna(ma10) and float(ma10) > float(ma20)
 
 
 def evaluate_signal(monthly_df: pd.DataFrame) -> tuple[bool, str]:
@@ -809,6 +837,17 @@ def analyze_market(base_date: str, market: str, top_n: int) -> tuple[pd.DataFram
         ["월봉10개월선돌파여부", "백테스트 수익률", "시가총액"],
         ascending=[True, False, False],
     ).reset_index(drop=True)
+    ticker_column = frame.columns[2] if len(frame.columns) > 2 else None
+    if ticker_column is not None:
+        frame["ma10_rising"] = frame[ticker_column].map(
+            lambda ticker: _is_ma10_rising(monthly_frames[ticker]) if ticker in monthly_frames else False
+        )
+        frame["above_ma20"] = frame[ticker_column].map(
+            lambda ticker: _is_above_ma20(monthly_frames[ticker]) if ticker in monthly_frames else False
+        )
+        frame["ma10_above_ma20"] = frame[ticker_column].map(
+            lambda ticker: _is_ma10_above_ma20(monthly_frames[ticker]) if ticker in monthly_frames else False
+        )
     return frame, monthly_frames
 
 
@@ -816,6 +855,8 @@ def apply_result_filters(
     results_df: pd.DataFrame,
     name_query: str,
     only_breakouts: bool,
+    ma10_rising_only: bool,
+    dual_trend_only: bool,
     volume_up_only: bool,
     min_backtest_return: float,
     breakout_within_months: int,
@@ -823,30 +864,61 @@ def apply_result_filters(
     ascending: bool,
 ) -> pd.DataFrame:
     filtered_df = results_df.copy()
-    has_backtest_values = filtered_df["백테스트 수익률"].notna().any() if "백테스트 수익률" in filtered_df.columns else False
+    columns = list(filtered_df.columns)
+    market_col = columns[0] if len(columns) > 0 else None
+    name_col = columns[1] if len(columns) > 1 else None
+    ticker_col = columns[2] if len(columns) > 2 else None
+    price_col = columns[3] if len(columns) > 3 else None
+    breakout_flag_col = columns[5] if len(columns) > 5 else None
+    breakout_elapsed_col = columns[8] if len(columns) > 8 else None
+    monthly_volume_col = columns[9] if len(columns) > 9 else None
+    volume_change_col = columns[10] if len(columns) > 10 else None
+    backtest_summary_col = columns[11] if len(columns) > 11 else None
+    backtest_return_col = columns[12] if len(columns) > 12 else None
+    market_cap_col = columns[18] if len(columns) > 18 else None
 
-    if only_breakouts:
-        filtered_df = filtered_df[filtered_df["월봉10개월선돌파여부"] == "예"]
+    sort_column_map = {
+        "??????": breakout_elapsed_col,
+        "???? ???": backtest_return_col,
+        "??? ???": volume_change_col,
+        "???": price_col,
+        "?????": monthly_volume_col,
+        "????": market_cap_col,
+        "???": name_col,
+    }
+    actual_sort_by = sort_column_map.get(sort_by, breakout_elapsed_col or price_col or columns[0])
+    has_backtest_values = bool(backtest_return_col and filtered_df[backtest_return_col].notna().any())
+
+    if only_breakouts and breakout_flag_col:
+        filtered_df = filtered_df[filtered_df[breakout_flag_col] == "?"]
 
     query = name_query.strip()
-    if query:
+    if query and name_col and ticker_col:
         filtered_df = filtered_df[
-            filtered_df["종목명"].str.contains(query, case=False, na=False)
-            | filtered_df["종목코드"].str.contains(query, case=False, na=False)
+            filtered_df[name_col].astype(str).str.contains(query, case=False, na=False)
+            | filtered_df[ticker_col].astype(str).str.contains(query, case=False, na=False)
         ]
 
-    if volume_up_only:
-        filtered_df = filtered_df[filtered_df["거래량 증감률"].fillna(float("-inf")) > 0]
+    if ma10_rising_only and "ma10_rising" in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df["ma10_rising"].fillna(False)]
 
-    if has_backtest_values:
-        filtered_df = filtered_df[filtered_df["백테스트 수익률"].fillna(float("-inf")) >= min_backtest_return]
-
-    if breakout_within_months > 0:
+    if dual_trend_only and "above_ma20" in filtered_df.columns and "ma10_above_ma20" in filtered_df.columns:
         filtered_df = filtered_df[
-            filtered_df["돌파경과개월"].notna() & (filtered_df["돌파경과개월"] <= breakout_within_months)
+            filtered_df["above_ma20"].fillna(False) & filtered_df["ma10_above_ma20"].fillna(False)
         ]
 
-    return filtered_df.sort_values(sort_by, ascending=ascending).reset_index(drop=True)
+    if volume_up_only and volume_change_col:
+        filtered_df = filtered_df[filtered_df[volume_change_col].fillna(float("-inf")) > 0]
+
+    if has_backtest_values and backtest_return_col:
+        filtered_df = filtered_df[filtered_df[backtest_return_col].fillna(float("-inf")) >= min_backtest_return]
+
+    if breakout_within_months > 0 and breakout_elapsed_col:
+        filtered_df = filtered_df[
+            filtered_df[breakout_elapsed_col].notna() & (filtered_df[breakout_elapsed_col] <= breakout_within_months)
+        ]
+
+    return filtered_df.sort_values(actual_sort_by, ascending=ascending).reset_index(drop=True)
 
 
 def get_last_data_error() -> str | None:
