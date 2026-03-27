@@ -72,9 +72,18 @@ class WeeklyAnalysisResult:
     breakout_ready: bool
     trend_turn_ready: bool
     not_extended_ready: bool
+    box_breakout_ready: bool
+    market_filter_ready: bool
+    relative_strength_ready: bool
     volume_ready: bool
     setup_ready: bool
     signal_week: pd.Timestamp
+    relative_strength_pct: float | None = None
+    return_12w_pct: float | None = None
+    forecast_sample_count: int = 0
+    expected_hold_weeks: float | None = None
+    expected_return_pct: float | None = None
+    success_rate_pct: float | None = None
     market_cap: int = 0
 
 
@@ -615,9 +624,11 @@ def build_weekly_frame(daily_df: pd.DataFrame) -> pd.DataFrame:
     weekly["avg_volume_10"] = weekly["volume"].shift(1).rolling(10).mean()
     weekly["volume_multiple"] = weekly["volume"] / weekly["avg_volume_10"]
     weekly["weekly_return_pct"] = weekly["close"].pct_change() * 100
+    weekly["return_12w_pct"] = weekly["close"].pct_change(12) * 100
     ma_min = weekly[["ma10", "ma20", "ma40"]].min(axis=1)
     ma_max = weekly[["ma10", "ma20", "ma40"]].max(axis=1)
     weekly["ma_spread_pct"] = ((ma_max - ma_min) / ma_min.replace(0, pd.NA)) * 100
+    weekly["box_high_10w"] = weekly["close"].shift(1).rolling(10).max()
     return weekly.dropna(subset=["ma10", "ma20", "ma40"])
 
 
@@ -723,6 +734,110 @@ def _evaluate_weekly_setup(
     )
 
 
+def _estimate_weekly_signal_forecast(
+    weekly_df: pd.DataFrame,
+    max_ma_spread_pct: float,
+    min_volume_multiple: float,
+    horizon_weeks: int = 12,
+    success_threshold_pct: float = 10.0,
+) -> tuple[int, float | None, float | None, float | None]:
+    if len(weekly_df) < 55:
+        return 0, None, None, None
+
+    max_signal_index = len(weekly_df) - 2
+    prior_setup_active = False
+    hold_weeks_samples: list[int] = []
+    max_return_samples: list[float] = []
+    success_flags: list[bool] = []
+
+    for index in range(40, max_signal_index):
+        history_until_signal = weekly_df.iloc[: index + 1]
+        _, _, _, _, _, setup_ready = _evaluate_weekly_setup(
+            weekly_df=history_until_signal,
+            max_ma_spread_pct=max_ma_spread_pct,
+            min_volume_multiple=min_volume_multiple,
+        )
+
+        if setup_ready and not prior_setup_active:
+            entry_index = index + 1
+            if entry_index >= len(weekly_df):
+                break
+
+            entry_price = float(weekly_df.iloc[entry_index]["open"])
+            if entry_price <= 0:
+                prior_setup_active = setup_ready
+                continue
+
+            future_slice = weekly_df.iloc[entry_index : min(len(weekly_df), entry_index + horizon_weeks)]
+            if future_slice.empty:
+                prior_setup_active = setup_ready
+                continue
+
+            forward_returns = ((future_slice["close"].astype(float) / entry_price) - 1.0) * 100.0
+            if forward_returns.empty:
+                prior_setup_active = setup_ready
+                continue
+
+            best_offset = int(forward_returns.values.argmax())
+            best_return = float(forward_returns.iloc[best_offset])
+            hold_weeks_samples.append(best_offset + 1)
+            max_return_samples.append(best_return)
+            success_flags.append(best_return >= success_threshold_pct)
+
+        prior_setup_active = setup_ready
+
+    if not max_return_samples:
+        return 0, None, None, None
+
+    sample_count = len(max_return_samples)
+    expected_hold_weeks = float(pd.Series(hold_weeks_samples).median())
+    expected_return_pct = float(pd.Series(max_return_samples).median())
+    success_rate_pct = float(pd.Series(success_flags).mean() * 100.0)
+    return sample_count, expected_hold_weeks, expected_return_pct, success_rate_pct
+
+
+def _get_market_index_symbol(market: str) -> str | None:
+    symbol_map = {
+        "KOSPI": "KS11",
+        "KOSDAQ": "KQ11",
+        "NASDAQ": "IXIC",
+        "DOW": "DJI",
+        "S&P500": "US500",
+    }
+    return symbol_map.get(market)
+
+
+@st.cache_data(ttl=60 * 30, show_spinner=False)
+def get_market_weekly_filter_state(base_date: str, market: str) -> bool:
+    fdr = _load_fdr()
+    symbol = _get_market_index_symbol(market)
+    if fdr is None or symbol is None:
+        return True
+
+    end_date = datetime.strptime(base_date, "%Y%m%d").date() + timedelta(days=1)
+    start_date = end_date - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+    try:
+        frame = fdr.DataReader(symbol, start_date, end_date)
+    except Exception:
+        return True
+
+    normalized = _normalize_daily_ohlcv(frame)
+    if normalized.empty:
+        return True
+
+    weekly_df = build_weekly_frame(normalized)
+    if len(weekly_df) < 21:
+        return True
+
+    current = weekly_df.iloc[-1]
+    previous = weekly_df.iloc[-2]
+    ma20_current = current.get("ma20")
+    ma20_previous = previous.get("ma20")
+    if pd.isna(ma20_current) or pd.isna(ma20_previous):
+        return True
+    return bool(float(current["close"]) > float(ma20_current) and float(ma20_current) > float(ma20_previous))
+
+
 def _analyze_single_ticker_weekly(
     item,
     start_date: str,
@@ -749,6 +864,11 @@ def _analyze_single_ticker_weekly(
         max_ma_spread_pct=max_ma_spread_pct,
         min_volume_multiple=min_volume_multiple,
     )
+    forecast_sample_count, expected_hold_weeks, expected_return_pct, success_rate_pct = _estimate_weekly_signal_forecast(
+        weekly_df=weekly_df,
+        max_ma_spread_pct=max_ma_spread_pct,
+        min_volume_multiple=min_volume_multiple,
+    )
     current = weekly_df.iloc[-1]
 
     result = WeeklyAnalysisResult(
@@ -770,6 +890,10 @@ def _analyze_single_ticker_weekly(
         volume_ready=volume_ready,
         setup_ready=setup_ready,
         signal_week=pd.Timestamp(weekly_df.index[-1]),
+        forecast_sample_count=forecast_sample_count,
+        expected_hold_weeks=expected_hold_weeks,
+        expected_return_pct=expected_return_pct,
+        success_rate_pct=success_rate_pct,
         market_cap=int(item.시가총액),
     )
     return result, weekly_df, source_used
@@ -1088,6 +1212,10 @@ def analyze_weekly_market(
                 "거래량배수": item.volume_multiple,
                 "거래량조건": "예" if item.volume_ready else "아니오",
                 "최종조건충족": "예" if item.setup_ready else "아니오",
+                "예상보유기간": item.expected_hold_weeks,
+                "예상수익률": item.expected_return_pct,
+                "과거성공확률": item.success_rate_pct,
+                "유사신호표본수": item.forecast_sample_count,
                 "기준주": item.signal_week.strftime("%Y-%m-%d"),
                 "시가총액": item.market_cap,
                 "가격데이터소스": "",
@@ -1103,7 +1231,7 @@ def analyze_weekly_market(
     for column in ["밀집조건", "돌파조건", "추세전환조건", "과열아님조건", "거래량조건", "최종조건충족"]:
         frame[column] = frame[column].astype(setup_sort)
     frame = frame.sort_values(
-        ["최종조건충족", "거래량배수", "이평선이격률", "시가총액"],
+        ["최종조건충족", "예상수익률", "이평선이격률", "시가총액"],
         ascending=[True, False, True, False],
     ).reset_index(drop=True)
     return frame, weekly_frames

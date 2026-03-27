@@ -726,7 +726,7 @@ def render_weekly_filter_controls(results_df: pd.DataFrame) -> pd.DataFrame:
 
     sort_col1, sort_col2 = st.columns([1, 1])
     with sort_col1:
-        sort_by = st.selectbox("정렬 기준", ["거래량배수", "이평선이격률", "시가총액", "현재가", "종목명"], index=0, key="weekly_sort_by")
+        sort_by = st.selectbox("정렬 기준", ["예상수익률", "과거성공확률", "예상보유기간", "이평선이격률", "시가총액", "현재가", "종목명"], index=0, key="weekly_sort_by")
     with sort_col2:
         sort_direction = st.selectbox("정렬 방향", ["내림차순", "오름차순"], index=0, key="weekly_sort_direction")
 
@@ -749,6 +749,7 @@ def render_weekly_filter_controls(results_df: pd.DataFrame) -> pd.DataFrame:
 def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) -> None:
     st.subheader("주봉 조건 검색 결과")
     st.caption(f"현재 표시 종목 수 {len(filtered_df)} / 전체 분석 종목 수 {len(results_df)}")
+    st.caption("예상값은 각 종목의 과거 유사 신호를 기준으로 계산한 통계 추정치입니다.")
     render_data_source_badges()
 
     if filtered_df.empty:
@@ -762,6 +763,12 @@ def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.Data
     for column in ["이평선이격률", "거래량배수"]:
         if column in display_df.columns:
             display_df[column] = display_df[column].map(lambda value: "미계산" if pd.isna(value) else f"{float(value):.2f}")
+    if "예상수익률" in display_df.columns:
+        display_df["예상수익률"] = display_df["예상수익률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
+    if "과거성공확률" in display_df.columns:
+        display_df["과거성공확률"] = display_df["과거성공확률"].map(lambda value: "미계산" if pd.isna(value) else format_percent(value))
+    if "예상보유기간" in display_df.columns:
+        display_df["예상보유기간"] = display_df["예상보유기간"].map(lambda value: "미계산" if pd.isna(value) else f"{float(value):.1f}주")
 
     st.download_button(
         "주봉 검색 결과 CSV 다운로드",
@@ -782,11 +789,14 @@ def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.Data
                 "20주선",
                 "40주선",
                 "이평선이격률",
-                "거래량배수",
                 "밀집조건",
                 "추세전환조건",
                 "돌파조건",
                 "과열아님조건",
+                "예상보유기간",
+                "예상수익률",
+                "과거성공확률",
+                "유사신호표본수",
                 "최종조건충족",
                 "기준주",
             ]
@@ -1007,6 +1017,25 @@ def render_weekly_detail(filtered_df: pd.DataFrame, weekly_frames: dict[str, pd.
     info2.metric("이평선 이격률", "미계산" if pd.isna(selected_row["이평선이격률"]) else f"{selected_row['이평선이격률']:.2f}%")
     info3.metric("거래량 배수", "미계산" if pd.isna(selected_row["거래량배수"]) else f"{selected_row['거래량배수']:.2f}배")
     info4.metric("최종 조건", str(selected_row["최종조건충족"]))
+
+    forecast_col1, forecast_col2, forecast_col3 = st.columns(3)
+    forecast_col1.metric(
+        "예상 보유기간",
+        "미계산" if pd.isna(selected_row["예상보유기간"]) else f"{float(selected_row['예상보유기간']):.1f}주",
+    )
+    forecast_col2.metric(
+        "예상 수익률",
+        "미계산" if pd.isna(selected_row["예상수익률"]) else format_percent(selected_row["예상수익률"]),
+    )
+    forecast_col3.metric(
+        "과거 성공확률",
+        "미계산" if pd.isna(selected_row["과거성공확률"]) else format_percent(selected_row["과거성공확률"]),
+    )
+
+    st.caption(
+        "예측값은 이 종목의 과거 유사 신호에서 계산한 중앙값/통계치입니다. "
+        f"유사 신호 표본 수: {int(selected_row['유사신호표본수']) if pd.notna(selected_row['유사신호표본수']) else 0}"
+    )
 
     cond_col1, cond_col2, cond_col3 = st.columns(3)
     cond_col1.metric("밀집조건", str(selected_row["밀집조건"]))

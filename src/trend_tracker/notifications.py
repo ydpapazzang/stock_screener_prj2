@@ -49,7 +49,11 @@ def build_weekly_telegram_message(results_df: pd.DataFrame, base_date: str, mark
             lines.append(f"  현재가: {format_number(row['현재가'])}원")
             lines.append(f"  10주선/20주선/40주선: {format_number(row['10주선'])} / {format_number(row['20주선'])} / {format_number(row['40주선'])}")
             spread_text = "미계산" if pd.isna(row["이평선이격률"]) else f"{float(row['이평선이격률']):.2f}%"
+            hold_text = "미계산" if pd.isna(row.get("예상보유기간")) else f"{float(row['예상보유기간']):.1f}주"
+            return_text = "미계산" if pd.isna(row.get("예상수익률")) else f"{float(row['예상수익률']):.1f}%"
             lines.append(f"  이평선 이격률: {spread_text}")
+            lines.append(f"  예상 보유기간: {hold_text}")
+            lines.append(f"  예상 수익률: {return_text}")
 
     app_url = get_public_app_url().strip()
     if app_url:
