@@ -237,6 +237,7 @@ def get_latest_business_day() -> str:
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame:
     global LAST_DATA_ERROR
+    partial_kis_pool = pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
     kis_provider = _get_kis_provider()
     if kis_provider is not None:
         try:
@@ -252,6 +253,7 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
                         f"KIS universe 종목 수가 요청값보다 적습니다. "
                         f"requested={top_n}, received={len(kis_pool)}"
                     )
+                    partial_kis_pool = kis_pool.copy()
                     _add_pool_fallback(
                         f"KIS universe size {len(kis_pool)} < requested {top_n} -> legacy providers"
                     )
@@ -268,37 +270,23 @@ def get_market_cap_pool(base_date: str, market: str, top_n: int) -> pd.DataFrame
         _set_pool_source("FinanceDataReader")
         return fdr_pool
 
-    try:
-        market_cap = stock.get_market_cap_by_ticker(base_date, market=market)
-    except Exception as exc:
-        LAST_DATA_ERROR = f"FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회도 실패: {exc}"
-        _add_pool_fallback("FinanceDataReader -> pykrx")
-        ticker_pool = _get_ticker_pool_from_pykrx(base_date, market, top_n)
-        if not ticker_pool.empty:
-            return ticker_pool
-        _add_error(LAST_DATA_ERROR)
-        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+    pykrx_pool = _get_market_cap_pool_from_pykrx(base_date, market, top_n)
+    if not pykrx_pool.empty:
+        return pykrx_pool
 
-    required_columns = {"시가총액"}
-    if market_cap.empty or not required_columns.issubset(set(market_cap.columns)):
-        LAST_DATA_ERROR = "FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회 응답에도 필요한 컬럼이 없습니다."
-        _add_pool_fallback("FinanceDataReader -> pykrx")
-        ticker_pool = _get_ticker_pool_from_pykrx(base_date, market, top_n)
-        if not ticker_pool.empty:
-            return ticker_pool
-        _add_error(LAST_DATA_ERROR)
-        return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
+    ticker_pool = _get_ticker_pool_from_pykrx(base_date, market, top_n)
+    if not ticker_pool.empty:
+        return ticker_pool
 
-    market_cap = market_cap.reset_index()
-    if "티커" not in market_cap.columns:
-        first_column = market_cap.columns[0]
-        market_cap = market_cap.rename(columns={first_column: "티커"})
-    market_cap["종목명"] = market_cap["티커"].apply(stock.get_market_ticker_name)
-    market_cap["시장"] = market
-    market_cap = market_cap.sort_values("시가총액", ascending=False).head(top_n)
-    _set_pool_source("pykrx")
-    _add_pool_fallback("FinanceDataReader -> pykrx")
-    return market_cap[["티커", "종목명", "시장", "시가총액"]]
+    if not partial_kis_pool.empty:
+        _set_pool_source("KIS Open API universe (partial fallback)")
+        _add_pool_fallback(
+            f"legacy providers unavailable -> using partial KIS universe ({len(partial_kis_pool)} items)"
+        )
+        return partial_kis_pool
+
+    _add_error(LAST_DATA_ERROR)
+    return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
 
 def _get_ticker_pool_from_pykrx(base_date: str, market: str, top_n: int) -> pd.DataFrame:
@@ -333,6 +321,43 @@ def _get_ticker_pool_from_pykrx(base_date: str, market: str, top_n: int) -> pd.D
     _set_pool_source("pykrx ticker list")
     _add_pool_fallback("pykrx ticker list without market cap")
     return pool_df
+
+
+def _get_market_cap_pool_from_pykrx(base_date: str, market: str, top_n: int) -> pd.DataFrame:
+    global LAST_DATA_ERROR
+    base_dt = datetime.strptime(base_date, "%Y%m%d").date()
+    last_exception: Exception | None = None
+
+    for offset in range(15):
+        current_date = to_krx_date(base_dt - timedelta(days=offset))
+        try:
+            market_cap = stock.get_market_cap_by_ticker(current_date, market=market)
+        except Exception as exc:
+            last_exception = exc
+            continue
+
+        if market_cap.empty or "시가총액" not in market_cap.columns:
+            continue
+
+        market_cap = market_cap.reset_index()
+        if "티커" not in market_cap.columns:
+            first_column = market_cap.columns[0]
+            market_cap = market_cap.rename(columns={first_column: "티커"})
+
+        market_cap["종목명"] = market_cap["티커"].apply(stock.get_market_ticker_name)
+        market_cap["시장"] = market
+        market_cap = market_cap.sort_values("시가총액", ascending=False).head(top_n)
+        _set_pool_source("pykrx")
+        _add_pool_fallback("FinanceDataReader -> pykrx")
+        return market_cap[["티커", "종목명", "시장", "시가총액"]]
+
+    if last_exception is not None:
+        LAST_DATA_ERROR = (
+            f"FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회도 실패: {last_exception}"
+        )
+    else:
+        LAST_DATA_ERROR = "FDR 시총 풀 조회 실패 후 pykrx 시가총액 조회 응답에도 필요한 컬럼이 없습니다."
+    return pd.DataFrame(columns=["티커", "종목명", "시장", "시가총액"])
 
 
 def _get_market_cap_pool_from_fdr(market: str, top_n: int) -> pd.DataFrame:
