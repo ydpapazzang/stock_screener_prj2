@@ -757,7 +757,7 @@ def _estimate_weekly_signal_forecast(
 
     for index in range(40, max_signal_index):
         history_until_signal = weekly_df.iloc[: index + 1]
-        _, _, _, _, _, setup_ready = _evaluate_weekly_setup(
+        _, _, _, _, _, _, setup_ready = _evaluate_weekly_setup(
             weekly_df=history_until_signal,
             max_ma_spread_pct=max_ma_spread_pct,
             min_volume_multiple=min_volume_multiple,
