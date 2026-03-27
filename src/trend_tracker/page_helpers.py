@@ -707,14 +707,14 @@ def render_screening_table(filtered_df: pd.DataFrame, results_df: pd.DataFrame) 
 def render_weekly_summary_metrics(results_df: pd.DataFrame) -> None:
     setup_count = int((results_df["최종조건충족"].astype(str) == "예").sum())
     dense_count = int((results_df["밀집조건"].astype(str) == "예").sum())
-    trend_turn_count = int((results_df["추세전환조건"].astype(str) == "예").sum())
-    breakout_count = int((results_df["돌파조건"].astype(str) == "예").sum())
+    market_count = int((results_df["시장필터"].astype(str) == "예").sum())
+    rs_count = int((results_df["상대강도조건"].astype(str) == "예").sum())
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("최종 조건 충족", setup_count)
     col2.metric("이평선 밀집", dense_count)
-    col3.metric("추세 전환", trend_turn_count)
-    col4.metric("20·40주 돌파", breakout_count)
+    col3.metric("시장 필터", market_count)
+    col4.metric("상대강도 통과", rs_count)
 
 
 def render_weekly_filter_controls(results_df: pd.DataFrame) -> pd.DataFrame:
@@ -726,7 +726,7 @@ def render_weekly_filter_controls(results_df: pd.DataFrame) -> pd.DataFrame:
 
     sort_col1, sort_col2 = st.columns([1, 1])
     with sort_col1:
-        sort_by = st.selectbox("정렬 기준", ["예상수익률", "과거성공확률", "예상보유기간", "이평선이격률", "시가총액", "현재가", "종목명"], index=0, key="weekly_sort_by")
+        sort_by = st.selectbox("정렬 기준", ["예상수익률", "과거성공확률", "상대강도(12주)", "예상보유기간", "이평선이격률", "시가총액", "현재가", "종목명"], index=0, key="weekly_sort_by")
     with sort_col2:
         sort_direction = st.selectbox("정렬 방향", ["내림차순", "오름차순"], index=0, key="weekly_sort_direction")
 
@@ -760,7 +760,7 @@ def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.Data
     for column in ["현재가", "10주선", "20주선", "40주선", "거래량", "10주평균거래량", "시가총액"]:
         if column in display_df.columns:
             display_df[column] = display_df[column].map(format_number)
-    for column in ["이평선이격률", "거래량배수"]:
+    for column in ["이평선이격률", "거래량배수", "상대강도(12주)"]:
         if column in display_df.columns:
             display_df[column] = display_df[column].map(lambda value: "미계산" if pd.isna(value) else f"{float(value):.2f}")
     if "예상수익률" in display_df.columns:
@@ -793,6 +793,10 @@ def render_weekly_screening_table(filtered_df: pd.DataFrame, results_df: pd.Data
                 "추세전환조건",
                 "돌파조건",
                 "과열아님조건",
+                "박스돌파조건",
+                "시장필터",
+                "상대강도조건",
+                "상대강도(12주)",
                 "예상보유기간",
                 "예상수익률",
                 "과거성공확률",
@@ -1031,6 +1035,11 @@ def render_weekly_detail(filtered_df: pd.DataFrame, weekly_frames: dict[str, pd.
         "과거 성공확률",
         "미계산" if pd.isna(selected_row["과거성공확률"]) else format_percent(selected_row["과거성공확률"]),
     )
+    forecast_col4 = st.columns(1)[0]
+    forecast_col4.metric(
+        "상대강도(12주)",
+        "미계산" if pd.isna(selected_row["상대강도(12주)"]) else format_percent(selected_row["상대강도(12주)"]),
+    )
 
     st.caption(
         "예측값은 이 종목의 과거 유사 신호에서 계산한 중앙값/통계치입니다. "
@@ -1042,8 +1051,10 @@ def render_weekly_detail(filtered_df: pd.DataFrame, weekly_frames: dict[str, pd.
     cond_col2.metric("추세전환조건", str(selected_row["추세전환조건"]))
     cond_col3.metric("돌파조건", str(selected_row["돌파조건"]))
 
-    cond_col4 = st.columns(1)[0]
+    cond_col4, cond_col5, cond_col6 = st.columns(3)
     cond_col4.metric("과열아님조건", str(selected_row["과열아님조건"]))
+    cond_col5.metric("박스돌파조건", str(selected_row["박스돌파조건"]))
+    cond_col6.metric("시장필터/상대강도", f"{selected_row['시장필터']} / {selected_row['상대강도조건']}")
 
     tab_chart, tab_history = st.tabs(["차트", "주별 데이터"])
     with tab_chart:

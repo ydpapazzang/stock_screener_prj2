@@ -14,8 +14,8 @@ st.set_page_config(page_title="Weekly Screening", layout="wide")
 page_loader = helpers.show_page_loading_bar("주봉 조회 페이지를 불러오고 있습니다...", progress=15)
 
 st.title("주봉 조회")
-st.caption("10주·20주·40주 이동평균선 밀집 뒤 초기 추세 전환이 나오고 아직 과열되지 않은 주봉 구간을 찾습니다.")
-st.info("기본 로직은 최근 3주 이평선 밀집, 20·40주선 상향 돌파, 10주선 상승 전환, 과도한 이격 아님의 교집합입니다.")
+st.caption("10주·20주·40주 이동평균선 밀집 뒤 초기 추세 전환이 나오고, 시장과 상대강도까지 받쳐주는 주봉 구간을 찾습니다.")
+st.info("기본 로직은 최근 3주 이평선 밀집, 20·40주선 상향 돌파, 10주선 상승 전환, 박스 상단 돌파, 과도한 이격 아님, 시장 필터, 상대강도 상위권의 교집합입니다.")
 helpers.render_execution_rule_badge("week")
 
 required_functions = [

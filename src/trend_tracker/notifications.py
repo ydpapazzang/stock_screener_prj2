@@ -39,7 +39,7 @@ def build_weekly_telegram_message(results_df: pd.DataFrame, base_date: str, mark
     setups = results_df[results_df["최종조건충족"].astype(str) == "예"].head(10)
 
     lines = [f"[{label_date} 기준 {market} 주봉 조건 검색]", ""]
-    lines.append("10·20·40주선 밀집 + 20·40주 돌파 + 초기 추세 전환 종목")
+    lines.append("밀집 + 추세 전환 + 박스 돌파 + 시장/상대강도 통과 종목")
 
     if setups.empty:
         lines.append("- 이번 조회에서는 최종 조건 충족 종목이 없습니다.")
@@ -51,7 +51,9 @@ def build_weekly_telegram_message(results_df: pd.DataFrame, base_date: str, mark
             spread_text = "미계산" if pd.isna(row["이평선이격률"]) else f"{float(row['이평선이격률']):.2f}%"
             hold_text = "미계산" if pd.isna(row.get("예상보유기간")) else f"{float(row['예상보유기간']):.1f}주"
             return_text = "미계산" if pd.isna(row.get("예상수익률")) else f"{float(row['예상수익률']):.1f}%"
+            rs_text = "미계산" if pd.isna(row.get("상대강도(12주)")) else f"{float(row['상대강도(12주)']):.1f}%"
             lines.append(f"  이평선 이격률: {spread_text}")
+            lines.append(f"  상대강도(12주): {rs_text}")
             lines.append(f"  예상 보유기간: {hold_text}")
             lines.append(f"  예상 수익률: {return_text}")
 

@@ -685,9 +685,9 @@ def _evaluate_weekly_setup(
     weekly_df: pd.DataFrame,
     max_ma_spread_pct: float,
     min_volume_multiple: float,
-) -> tuple[bool, bool, bool, bool, bool, bool]:
+) -> tuple[bool, bool, bool, bool, bool, bool, bool]:
     if len(weekly_df) < 2:
-        return False, False, False, False, False, False
+        return False, False, False, False, False, False, False
 
     current = weekly_df.iloc[-1]
     previous = weekly_df.iloc[-2]
@@ -722,13 +722,18 @@ def _evaluate_weekly_setup(
         and pd.notna(current.get("ma40"))
         and float(current["close"]) <= max(float(current["ma20"]), float(current["ma40"])) * 1.08
     )
+    box_breakout_ready = (
+        pd.notna(current.get("box_high_10w"))
+        and float(current["close"]) > float(current["box_high_10w"])
+    )
     volume_ready = pd.notna(volume_multiple) and float(volume_multiple) >= float(min_volume_multiple)
-    setup_ready = bool(dense_ready and breakout_ready and trend_turn_ready and not_extended_ready)
+    setup_ready = bool(dense_ready and breakout_ready and trend_turn_ready and not_extended_ready and box_breakout_ready)
     return (
         bool(dense_ready),
         bool(breakout_ready),
         bool(trend_turn_ready),
         bool(not_extended_ready),
+        bool(box_breakout_ready),
         bool(volume_ready),
         setup_ready,
     )
@@ -859,7 +864,7 @@ def _analyze_single_ticker_weekly(
     if len(weekly_df) < 41:
         return None, None, source_used
 
-    dense_ready, breakout_ready, trend_turn_ready, not_extended_ready, volume_ready, setup_ready = _evaluate_weekly_setup(
+    dense_ready, breakout_ready, trend_turn_ready, not_extended_ready, box_breakout_ready, volume_ready, setup_ready = _evaluate_weekly_setup(
         weekly_df=weekly_df,
         max_ma_spread_pct=max_ma_spread_pct,
         min_volume_multiple=min_volume_multiple,
@@ -887,9 +892,14 @@ def _analyze_single_ticker_weekly(
         breakout_ready=breakout_ready,
         trend_turn_ready=trend_turn_ready,
         not_extended_ready=not_extended_ready,
+        box_breakout_ready=box_breakout_ready,
+        market_filter_ready=True,
+        relative_strength_ready=False,
         volume_ready=volume_ready,
         setup_ready=setup_ready,
         signal_week=pd.Timestamp(weekly_df.index[-1]),
+        relative_strength_pct=float(current["return_12w_pct"]) if pd.notna(current["return_12w_pct"]) else None,
+        return_12w_pct=float(current["return_12w_pct"]) if pd.notna(current["return_12w_pct"]) else None,
         forecast_sample_count=forecast_sample_count,
         expected_hold_weeks=expected_hold_weeks,
         expected_return_pct=expected_return_pct,
@@ -1163,6 +1173,7 @@ def analyze_weekly_market(
     end_date = datetime.strptime(base_date, "%Y%m%d").date()
     start_date = end_date - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     pool = get_market_cap_pool(base_date, market, top_n)
+    market_filter_ready = get_market_weekly_filter_state(base_date, market)
 
     results: list[WeeklyAnalysisResult] = []
     weekly_frames: dict[str, pd.DataFrame] = {}
@@ -1192,6 +1203,32 @@ def analyze_weekly_market(
             results.append(result)
             weekly_frames[result.ticker] = weekly_df
 
+    if results:
+        valid_returns = [item.return_12w_pct for item in results if item.return_12w_pct is not None and pd.notna(item.return_12w_pct)]
+        if valid_returns:
+            return_series = pd.Series(valid_returns)
+            threshold = float(return_series.quantile(0.7))
+        else:
+            threshold = float("-inf")
+
+        for item in results:
+            item.market_filter_ready = market_filter_ready
+            item.relative_strength_ready = bool(
+                item.return_12w_pct is not None
+                and pd.notna(item.return_12w_pct)
+                and float(item.return_12w_pct) >= threshold
+            )
+            item.relative_strength_pct = item.return_12w_pct
+            item.setup_ready = bool(
+                item.dense_ready
+                and item.breakout_ready
+                and item.trend_turn_ready
+                and item.not_extended_ready
+                and item.box_breakout_ready
+                and item.market_filter_ready
+                and item.relative_strength_ready
+            )
+
     frame = pd.DataFrame(
         [
             {
@@ -1207,10 +1244,14 @@ def analyze_weekly_market(
                 "돌파조건": "예" if item.breakout_ready else "아니오",
                 "추세전환조건": "예" if item.trend_turn_ready else "아니오",
                 "과열아님조건": "예" if item.not_extended_ready else "아니오",
+                "박스돌파조건": "예" if item.box_breakout_ready else "아니오",
+                "시장필터": "예" if item.market_filter_ready else "아니오",
+                "상대강도조건": "예" if item.relative_strength_ready else "아니오",
                 "거래량": item.weekly_volume,
                 "10주평균거래량": item.avg_volume_10,
                 "거래량배수": item.volume_multiple,
                 "거래량조건": "예" if item.volume_ready else "아니오",
+                "상대강도(12주)": item.relative_strength_pct,
                 "최종조건충족": "예" if item.setup_ready else "아니오",
                 "예상보유기간": item.expected_hold_weeks,
                 "예상수익률": item.expected_return_pct,
@@ -1228,7 +1269,7 @@ def analyze_weekly_market(
         return frame, weekly_frames
 
     setup_sort = pd.CategoricalDtype(["예", "아니오"], ordered=True)
-    for column in ["밀집조건", "돌파조건", "추세전환조건", "과열아님조건", "거래량조건", "최종조건충족"]:
+    for column in ["밀집조건", "돌파조건", "추세전환조건", "과열아님조건", "박스돌파조건", "시장필터", "상대강도조건", "거래량조건", "최종조건충족"]:
         frame[column] = frame[column].astype(setup_sort)
     frame = frame.sort_values(
         ["최종조건충족", "예상수익률", "이평선이격률", "시가총액"],
